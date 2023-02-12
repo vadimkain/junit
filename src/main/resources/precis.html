@@ -40,6 +40,88 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 2. Установка программного обеспечения</h1>
+    <p>
+        В качестве линковщика будем использовать maven. Подключим зависимости для JUnit 5 в pom:
+    </p>
+    <pre>
+    &lt;dependencies>
+        &lt;dependency>
+          &lt;groupId>org.junit.jupiter&lt;/groupId>
+          &lt;artifactId>junit-jupiter-engine&lt;/artifactId>
+          &lt;version>5.8.0-M1&lt;/version>
+          &lt;scope>test&lt;/scope>
+        &lt;/dependency>
+    &lt;/dependencies>
+    </pre>
+    <p>
+        В test/java/com/kainv/junit/service класс UserService:
+    </p>
+    <pre>
+package com.kainv.junit.service;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+public class UserService {
+    @Test
+    void test() {
+        assertTrue(false);
+    }
+}
+    </pre>
+    <p>
+        И выполним <code>mvn test</code>. И увидим проблемы:
+    </p>
+    <img src="ju-2-1.png" alt="ju-2-1" width="45%">
+    <p>
+        Во первых надо переопределить maven-compiler-plugin потому что JUnit использует версию 8 или выше. Во вторых
+        надо будет переопределить surefire-plugin до новой версии.
+    </p>
+    <pre>
+  &lt;build>
+    &lt;plugins>
+      &lt;plugin>
+        &lt;groupId>org.apache.maven.plugins&lt;/groupId>
+        &lt;artifactId>maven-compiler-plugin&lt;/artifactId>
+        &lt;version>3.8.1&lt;/version>
+        &lt;configuration>
+            &lt;source>15&lt;/source>
+            &lt;target>15&lt;/target>
+        &lt;/configuration>
+      &lt;/plugin>
+      
+      &lt;plugin>
+        &lt;groupId>org.apache.maven.plugins&lt;/groupId>
+        &lt;artifactId>maven-surefire-plugin&lt;/artifactId>
+        &lt;version>2.22.2&lt;/version>
+      &lt;/plugin>
+    &lt;/plugins>
+  &lt;/build>
+    </pre>
+    <p>
+        Обновляем и выполняем <code>mvn test</code>. Проект сбилдился, но тесты не выполнились потому что наш
+        тест-класс не с постфиксом <code>Test</code> (это дефолтное определение, наши тесты должны иметь определённый
+        префиксы либо суффиксы). Поправим <code>UserService</code> на <code>UserServiceTest</code> и запустим:
+    </p>
+    <img src="ju-2-2.png" alt="ju-2-2" width="45%">
+    <p>
+        Видим, что тест провалился потому что у нас нет такого класса в main.
+    </p>
+    <p>
+        Если хотим из командной строки запустить, то необходим wrapper. В командной строке вводим
+        <code>mvn -N io.takari:maven:0.7.7:wrapper -Dmaven=3.6.3</code>. Получаем директорию .mvn где находится наш
+        maven-wrapper. Более того, можем изменять наши пути к нужным нам установочникам в <i>.properties</i>.
+        Теперь у нас есть файл <i>mvnw</i> & <i>mvnw.cmd</i> и использовать команду не <code>mvn</code>, а
+        <code>./mvnw ...</code>.
+    </p>
+    <img src="ju-2-3.png" alt="ju-2-3" width="45%">
+    <p>
+        Теперь проект можно запускать как из IDE, так и из командной строки.
+    </p>
+</article>
+<article>
     <h1>JUnit 5. 1. Введение</h1>
     <p>
         <b>Тестирование ПО</b> - это процесс испытания программы, целью которого является определить соответствие
