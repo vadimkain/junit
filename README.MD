@@ -1,57 +1,44 @@
-JUnit 5. 3. Аннотация @Test. Assertions
-=======================================
+JUnit 5. 4. Test Lifecycle
+==========================
 
-Разберёмся как написать тест, общие концепции написания тестов и нейминг конвенции.
+Познакомимся с жизненным циклом тестов.
 
-Для начала, все наши тесты должны быть в директории src/test/java. Т.е. используем maven или gradle (неважно, поскольку используют одну структуру проектов). Например, если написали `UserServiceTest`, то это означает, что мы тестируем `UserService` класс и этот тест находится в той же самой директории, что и исходник. Используем постфикс Test потому что используем surefire-plugin, который занимается тем, что запускает тесты. Он отслеживает только те классы в директории test, которые заканчиваются на определенный постфикс или префикс. Префиксальный вариант не особо предпочтительный, зато постфиксный по умолчанию это `Test`, `Tests`, `Testcase`.
+![ju-4-1](src/main/resources/ju-4-1.png)
 
-Далее, сами классы и тесты должны в JUnit 4 должны были быть `public`, но в JUnit 5 такое не надо, поэтому убираем эту конструкцию с классов и тестов:
+Когда пишем тесты в нашем `UserServiceTest`, то в этом классе у нас может быть множество таких тестов. Мы просто пишем методы и помечаем их аннотациями `@Test`. Но также нам часто надо что-то предустановить и почистить после выполнения тестов. Следственно, для этого можем написать соответствующие методы и пометить их аннотациями:
 
-    package com.kainv.junit.service;
+*   `@BeforeEach` - если хотим что-то предустановить перед тестами.
+*   `@AfterEach` - если хотим почистить после каждого теста.
 
-    import org.junit.jupiter.api.Test;
+Следственно, сколько будет тестов в классе, столько раз будет происходить вызов цикла `@BeforeEach` -> `@Test` -> `@AfterEach`. Если что-то хотим предустановить перед всеми вызовами этих тестов и почистить после них, то для этого есть аннотации `@BeforeAll` и `@AfterAll`.
 
-    import static org.junit.jupiter.api.Assertions.\*;
+Отсюда получается жизненный цикл: сначала вызывается `@BeforeAll` перед всеми тестами -> далее происходит вызов всех наших тестов по циклу, при чем порядок не гарантирован. **Не следует** писать тесты полагаясь на вызов других тестов, наши тесты **должны быть** независимы друг от друга. Поэтому происходит череда вызовов тестов и перед каждым тестом и после него вызывается `@BeforeEach` и `@AfterEach` секция. Как только все тесты были закончены, то происходит вызов `@AfterAll`.
 
-    class UserServiceTest {
-        @Test
-        void test() {
-            assertTrue(false);
-        }
-    }
+Посмотрим как это работает на практике
+--------------------------------------
 
+Для этого создадим ещё один `@Test` на добавление в `UserService` наших пользователей (заранее реализовать метод `add()` в `UserService`):
 
-Теперь поговорим об именовании тестов. До того как появилась аннотация `@Test`, все тесты имели префикс Test потому что инструменты для запуска этих тестов (например surefire-plugin) отслеживал именование методов и по префиксу запускал те методы, которые начинаются с Test. В JUnit 5 появилась аннотация `@Test`, которая позволила запускать эти тесты невзирая на именование. Следовательно, теперь только те тесты, которые обозначены аннотацией `@Test` запускается нашим плагином. Если перейдём в исходники аннотации, то увидим, что её можно ставить над методами и аннотациями которые хотим запустить для теста:
-
-![ju-3-1](src/main/resources/ju-3-1.png)
-
-Мета-аннотация `@Testable` которая используется jupiter test engine просто в качестве мета-информации чтобы отслеживать функционал который можем запустить в качестве тестов.
-
-Создадим экземпляр класса `UserService` и вызовем метод `getAll()` (предварительно создав в src/java/main):
-
-    package com.kainv.junit.service;
-
+    package com.kainv.service;
+    
     import com.kainv.dto.User;
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.Test;
-
+    
+    import java.util.ArrayList;
     import java.util.List;
-
-    import static org.junit.jupiter.api.Assertions.\*;
-
-    class UserServiceTest {
-        @Test
-        void test() {
-            UserService userService = new UserService();
-            List<User> users = userService.getAll();
-            assertTrue(users.isEmpty());
+    
+    public class UserService {
+        
+        private final List<User> users = new ArrayList<>();
+        
+        public List<User> getAll() {
+            return users;
+        }
+    
+        public boolean add(User user) {
+            return users.add(user);
         }
     }
-
-
-Мы сначала написали тест, а потом функционал. Такая методология называется **TTD (Test Driven Development)**.
-
-В нашем тесте проверяем, что получаем всех наших пользователей и наша коллекция будет пустая если туда ничего не положили. Теперь можем именовать наш `void test`. Название теста должно полностью отображать что у нас происходит в тесте. Так как это юнит-тест, он проверяет всего лишь маленький функционал, метод один единственный в одном единственном классе. В нашем случае получается:
+    
 
     package com.kainv.junit.service;
 
@@ -68,25 +55,37 @@ JUnit 5. 3. Аннотация @Test. Assertions
         void usersEmptyIfNoUserAdded() {
             UserService userService = new UserService();
             List<User> users = userService.getAll();
-            assertTrue(users.isEmpty());
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            UserService userService = new UserService();
+            userService.add(new User);
+            userService.add(new User);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List<User> users = userService.getAll();
+
+            assertEquals(2, users.size());
         }
     }
 
 
-В именовании можем использовать как SnakeCase так и CamelCase без префиксов и постфиксов, т.к. уже стоит аннотация `@Test`.
+И вызовем тесты:
 
-Запустим тест и проверим, что он работает: `mvn test`
+![ju-4-2](src/main/resources/ju-4-2.png)
 
-![ju-3-2](src/main/resources/ju-3-2.png)
+Теперь используем `@BeforeEach`. Т.е. перед тем как выполняются все наши тесты, я хочу что-то подготовить. Т.к. у нас два раза повторяется инициализация `UserService` в тест-методах, то значит, что можем эту инициализацию вынести в метод с аннотацией `@BeforeEach`.
 
-Видим, что тест успешно запустился и отработал.
-
-Класс `Assertions` необходим для того, чтобы проверять ожидаемое и актуальное значение, которое получили из функций. По сути, всегда в наших тестов подаём на вход input в "черный ящик" Input -> \[box == func\] -> actual output и на выходе получаем актуальные значения. В данном случае `assertTrue` принимает условие и если он true, то тест пройден, иначе тест проваливается. С помощью таких assert'ов происходят наши проверки на ожидаемые и актуальные значения. Так же можно использовать `assertFalse`:
+Так же создаём `@AfterEach` в котором выполняем какую-нибудь очистку. Например, данные из баз данных если в наших тестах делаем какие-то insert'ы и прочее для того чтобы следующий тест независил от этих данных.
 
     package com.kainv.junit.service;
 
     import com.kainv.dto.User;
     import com.kainv.service.UserService;
+    import org.junit.jupiter.api.AfterEach;
+    import org.junit.jupiter.api.BeforeEach;
     import org.junit.jupiter.api.Test;
 
     import java.util.List;
@@ -94,47 +93,171 @@ JUnit 5. 3. Аннотация @Test. Assertions
     import static org.junit.jupiter.api.Assertions.\*;
 
     class UserServiceTest {
+
+        private UserService userService;
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
         @Test
         void usersEmptyIfNoUserAdded() {
-            UserService userService = new UserService();
+            System.out.println("Test 1: " + this);
             List<User> users = userService.getAll();
-            assertFalse(users.isEmpty());
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(new User());
+            userService.add(new User());
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List<User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
         }
     }
 
 
-![ju-3-3](src/main/resources/ju-3-3.png)
+Теперь запустим и проверим что у нас получится:
 
-Получаем Test failed и где этот тест зафейлился, в каком методе, каком классе, что ожидали получить и актуальное значение. Так будет всегда: подаём что-то на вход, вызываем функцию и проверяем ожидаемое и актуальное значение при помощи `assertFalse`. Также можем вторым параметром передавать более подробное описание ошибки:
+![ju-4-3](src/main/resources/ju-4-3.png)
+
+Видим, что выполнилось оба теста на каждом из которых сработали `@BeforeEach` и `@AfterEach`. Более того, toString отличается у нашего объекта `UserServiceTest`. Следовательно, у нас выходит новое **правило**, что по умолчанию каждый раз создается новый объект `UserServiceTest` и в нем вызываются соответсвующее методы `@BeforeEach`, выполняется тест и вызывается `@AfterEach`. Так будет после каждого метода. Это безопасно для нас чтобы не изменялось состояние наших объектов. В данном случае полей нашего класса `UserServiceTest`.
+
+Последнее это `@BeforeAll` & `@AfterAll`, где будет проходить инициализация для всех тестов происходить.
+
+Если попробуем запустить, то будет ошибка потому что методы `@BeforeAll` & `@AfterAll` должны быть `static`. По умолчанию у нас есть жизненный цикл наших тестов и можем его задавать через аннотацию `@TestInstance` и по умолчанию это `@TestInstance(TestInstance.Lifecycle.PER_METHOD)`. Т.е. каждый раз создаётся новая сущность `UserServiceTest` и вызывается `@BeforeEach` -> `@Test` -> `@AfterEach`. Следовательно, `@BeforeAll` & `@AfterAll` не могут быть не статическими потому что нужно как-то один раз вызвать перед тестами и один раз вызвать после всех тестов.
+
+Теперь можем запустить тесты и все будет работать:
 
     package com.kainv.junit.service;
 
     import com.kainv.dto.User;
     import com.kainv.service.UserService;
-    import org.junit.jupiter.api.Test;
+    import org.junit.jupiter.api.\*;
 
     import java.util.List;
 
     import static org.junit.jupiter.api.Assertions.\*;
 
+    @TestInstance(TestInstance.Lifecycle.PER\_METHOD)
     class UserServiceTest {
+
+        private UserService userService;
+
+        @BeforeAll
+        static void init() {
+            System.out.println("Before all");
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
         @Test
         void usersEmptyIfNoUserAdded() {
-            UserService userService = new UserService();
+            System.out.println("Test 1: " + this);
             List<User> users = userService.getAll();
-            assertFalse(users.isEmpty(), () -> "User list should be empty");
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(new User());
+            userService.add(new User());
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List<User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        static void closeConnectionPool() {
+            System.out.println("After all");
         }
     }
 
 
-![ju-3-4](src/main/resources/ju-3-4.png)
+![ju-4-4](src/main/resources/ju-4-4.png)
 
-В `assertEquals` мы можем передавать ожидаемые и актуальные данные и они должны совпасть.
+Но если сделаем `TestInstance.Lifecycle.PER_CLASS`, то уже нет необходимости делать `static` потому что тогда и так создаем лишь один объект `UserServiceTest` для всех тестов.
 
-`assertThrows` проверяет пробрасывает ли метод какой-то exception.
+    package com.kainv.junit.service;
 
-`assertAll` нужен когда есть несколько assert'ов в нашем методе потому что по best practice было бы неплохо иметь один assert в рамках одного теста потому что если зафейлится тест на строчке 13 а после него был ещё один assert, то мы до него даже не дойдем. Поэтому `assertAll` прекрасный вариант чтобы вызывать сразу несколько assert'ов и получить результат по всем из них.
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.\*;
 
-`assertArrayEquals` тоже самое что и `assertEquals` только проверяет массивы.
+    import java.util.List;
 
-И много других assert'ов. По-хорошему их все равно недостаточно поэтому так как JUnit разбит на модули и предполагает нам альтернативы - мы можем подключить дополнительные библиотеки для наших assert'ов (например AssertJ, Hamcrest).
+    import static org.junit.jupiter.api.Assertions.\*;
+
+    @TestInstance(TestInstance.Lifecycle.PER\_CLASS)
+    class UserServiceTest {
+
+        private UserService userService;
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List<User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(new User());
+            userService.add(new User());
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List<User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+    }
+
+
+![ju-4-5](src/main/resources/ju-4-5.png)
+
+Видим, что теперь везде одинаковые ссылки.

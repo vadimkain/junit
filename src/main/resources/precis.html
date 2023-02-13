@@ -40,6 +40,310 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 4. Test Lifecycle</h1>
+    <p>
+        Познакомимся с жизненным циклом тестов.
+    </p>
+    <img src="ju-4-1.png" alt="ju-4-1" width="45%">
+    <p>
+        Когда пишем тесты в нашем <code>UserServiceTest</code>, то в этом классе у нас может быть множество таких
+        тестов. Мы просто пишем методы и помечаем их аннотациями <code>@Test</code>. Но также нам часто надо
+        что-то предустановить и почистить после выполнения тестов. Следственно, для этого можем написать соответствующие
+        методы и пометить их аннотациями:
+    </p>
+    <ul>
+        <li>
+            <code>@BeforeEach</code> - если хотим что-то предустановить перед тестами.
+        </li>
+        <li>
+            <code>@AfterEach</code> - если хотим почистить после каждого теста.
+        </li>
+    </ul>
+    <p>
+        Следственно, сколько будет тестов в классе, столько раз будет происходить вызов цикла <code>@BeforeEach</code>
+        -> <code>@Test</code> -> <code>@AfterEach</code>. Если что-то хотим предустановить перед всеми вызовами этих
+        тестов и почистить после них, то для этого есть аннотации <code>@BeforeAll</code> и <code>@AfterAll</code>.
+    </p>
+    <p>
+        Отсюда получается жизненный цикл: сначала вызывается <code>@BeforeAll</code> перед всеми тестами ->
+        далее происходит вызов всех наших тестов по циклу, при чем порядок не гарантирован. <b>Не следует</b> писать
+        тесты полагаясь на вызов других тестов, наши тесты <b>должны быть</b> независимы друг от друга. Поэтому
+        происходит череда вызовов тестов и перед каждым тестом и после него вызывается <code>@BeforeEach</code> и
+        <code>@AfterEach</code> секция. Как только все тесты были закончены, то происходит вызов <code>@AfterAll</code>.
+    </p>
+    <h2>Посмотрим как это работает на практике</h2>
+    <p>
+        Для этого создадим ещё один <code>@Test</code> на добавление в <code>UserService</code> наших пользователей
+        (заранее реализовать метод <code>add()</code> в <code>UserService</code>):
+    </p>
+    <pre>
+    package com.kainv.service;
+    
+    import com.kainv.dto.User;
+    
+    import java.util.ArrayList;
+    import java.util.List;
+    
+    public class UserService {
+        
+        private final List&lt;User> users = new ArrayList&lt;>();
+        
+        public List&lt;User> getAll() {
+            return users;
+        }
+    
+        public boolean add(User user) {
+            return users.add(user);
+        }
+    }
+    </pre>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.Test;
+
+    import java.util.List;
+
+    import static org.junit.jupiter.api.Assertions.*;
+
+    class UserServiceTest {
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            UserService userService = new UserService();
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            UserService userService = new UserService();
+            userService.add(new User);
+            userService.add(new User);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+    }
+    </pre>
+    <p>
+        И вызовем тесты:
+    </p>
+    <img src="ju-4-2.png" alt="ju-4-2" width="45%">
+    <p>
+        Теперь используем <code>@BeforeEach</code>. Т.е. перед тем как выполняются все наши тесты, я хочу что-то
+        подготовить. Т.к. у нас два раза повторяется инициализация <code>UserService</code> в тест-методах, то значит,
+        что можем эту инициализацию вынести в метод с аннотацией <code>@BeforeEach</code>.
+    </p>
+    <p>
+        Так же создаём <code>@AfterEach</code> в котором выполняем какую-нибудь очистку. Например, данные из баз данных
+        если в наших тестах делаем какие-то insert'ы и прочее для того чтобы следующий тест независил от этих данных.
+    </p>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.AfterEach;
+    import org.junit.jupiter.api.BeforeEach;
+    import org.junit.jupiter.api.Test;
+
+    import java.util.List;
+
+    import static org.junit.jupiter.api.Assertions.*;
+
+    class UserServiceTest {
+
+        private UserService userService;
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(new User());
+            userService.add(new User());
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+    }
+    </pre>
+    <p>
+        Теперь запустим и проверим что у нас получится:
+    </p>
+    <img src="ju-4-3.png" alt="ju-4-3" width="70%">
+    <p>
+        Видим, что выполнилось оба теста на каждом из которых сработали <code>@BeforeEach</code> и 
+        <code>@AfterEach</code>. Более того, toString отличается у нашего объекта <code>UserServiceTest</code>.
+        Следовательно, у нас выходит новое <b>правило</b>, что по умолчанию каждый раз создается новый объект
+        <code>UserServiceTest</code> и в нем вызываются соответсвующее методы <code>@BeforeEach</code>, выполняется
+        тест и вызывается <code>@AfterEach</code>. Так будет после каждого метода. Это безопасно для нас чтобы не
+        изменялось состояние наших объектов. В данном случае полей нашего класса <code>UserServiceTest</code>.
+    </p>
+    <p>
+        Последнее это <code>@BeforeAll</code> & <code>@AfterAll</code>, где будет проходить инициализация для всех
+        тестов происходить.
+    </p>
+    <p>
+        Если попробуем запустить, то будет ошибка потому что методы <code>@BeforeAll</code> & <code>@AfterAll</code>
+        должны быть <code>static</code>. По умолчанию у нас есть жизненный цикл наших тестов и можем его задавать
+        через аннотацию <code>@TestInstance</code> и по умолчанию это
+        <code>@TestInstance(TestInstance.Lifecycle.PER_METHOD)</code>. Т.е. каждый раз создаётся новая сущность
+        <code>UserServiceTest</code> и вызывается <code>@BeforeEach</code> -> <code>@Test</code> ->
+        <code>@AfterEach</code>. Следовательно, <code>@BeforeAll</code> & <code>@AfterAll</code> не могут быть не
+        статическими потому что нужно как-то один раз вызвать перед тестами и один раз вызвать после всех тестов.
+    </p>
+    <p>
+        Теперь можем запустить тесты и все будет работать:
+    </p>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @TestInstance(TestInstance.Lifecycle.PER_METHOD)
+    class UserServiceTest {
+
+        private UserService userService;
+
+        @BeforeAll
+        static void init() {
+            System.out.println("Before all");
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(new User());
+            userService.add(new User());
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        static void closeConnectionPool() {
+            System.out.println("After all");
+        }
+    }
+    </pre>
+    <img src="ju-4-4.png" alt="ju-4-4" width="70%">
+    <p>
+        Но если сделаем <code>TestInstance.Lifecycle.PER_CLASS</code>, то уже нет необходимости делать
+        <code>static</code> потому что тогда и так создаем лишь один объект <code>UserServiceTest</code> для
+        всех тестов.
+    </p>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    class UserServiceTest {
+
+        private UserService userService;
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(new User());
+            userService.add(new User());
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+    }
+    </pre>
+    <img src="ju-4-5.png" alt="ju-4-5" width="70%">
+    <p>
+        Видим, что теперь везде одинаковые ссылки.
+    </p>
+</article>
+<article>
     <h1>JUnit 5. 3. Аннотация @Test. Assertions</h1>
     <p>
         Разберёмся как написать тест, общие концепции написания тестов и нейминг конвенции.
