@@ -40,6 +40,234 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 5. Запуск тестов. Launcher API</h1>
+    <h2>Разберёмся как удаётся запускать тесты</h2>
+    <p>
+        В Java есть один единственный метод main,
+        который можем запускать в языке программирования Java. Отсюда можем видеть то, как устроен JUnit 5:
+    </p>
+    <img src="ju-5-1.png" alt="ju-5-1" width="45%">
+    <p>
+        Когда пишем наши тесты - мы используем <b><i>JUnit 5 API</i></b>, который в свою очередь разбит на подпроекты.
+    </p>
+    <p>
+        В свою очередь для выполнения тестов нам нужен <b><i>JUnit Engine</i></b>, он транзитивной зависимостью
+        предоставил JUnit 5 API.
+    </p>
+    <p>
+        В свою очередь чтобы мы могли писать на разных версиях JUnit у нас есть общий API для всех test engine'ов,
+        это <b><i>JUnit Engine API</i></b>. Он также является транзитивной зависимостью когда подключаем
+        <i>JUnit Engine</i>. Эта платформа называется <i>junit-platform-engine</i>.
+    </p>
+    <p>
+        Если посмотрим на подключенные зависимости, то увидим, что как только подключили <i>junit-jupiter-engine</i>,
+        то подключились <i>junit-jupiter-api</i>, который используем для написания тестов и откуда у нас есть наши
+        <code>Assertions</code>, аннотации т.д.. И в то же самое время видим <i>junit-platform-engine</i>, который
+        представляет API (по сути набор классов и интерфейсов), которые уже реализуются нашим
+        <i>junit-jupiter-engine</i>
+        для того чтобы писать на JUnit 5. Если хотим писать на JUnit 4, то там уже будет свой engine либо можем написать
+        даже кастомный engine и все это так же будет работать если будем использовать <i>junit-platform-engine</i>.
+    </p>
+    <img src="ju-5-2.png" alt="ju-5-2" width="30%">
+    <p>
+        В свою очередь, для запуска тестов мы используем инструменты (<b><i>Tools</i></b>). Все они используют
+        <b><i>JUnit Launcher</i></b>. Мы можем подключить эту зависимость и с помощью её вызвать соответствующие
+        <i>junit-platform-engine</i> и проверить наши тесты.
+    </p>
+    <h2>Подключим зависимость JUnit Launcher вручную</h2>
+    <pre>
+        &lt;dependencies>
+            &lt;dependency>
+                &lt;groupId>org.junit.jupiter&lt;/groupId>
+                &lt;artifactId>junit-jupiter-engine&lt;/artifactId>
+                &lt;version>5.8.0-M1&lt;/version>
+                &lt;scope>test&lt;/scope>
+            &lt;/dependency>
+            &lt;dependency>
+                &lt;groupId>org.junit.platform&lt;/groupId>
+                &lt;artifactId>junit-platform-launcher&lt;/artifactId>
+                &lt;version>1.8.0-M1&lt;/version>
+                &lt;scope>test&lt;/scope>
+            &lt;/dependency>
+        &lt;/dependencies>
+    </pre>
+    <p>
+        И напишем свой класс с методом <code>main</code>, который запускает наши тесты. В методе <code>main</code>
+        нужно создать <code>Launcher</code>, его объект.
+    </p>
+    <pre>
+    package com.kainv;
+
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.core.LauncherFactory;
+
+    public class TestLauncher {
+        public static void main(String[] args) {
+            Launcher launcher = LauncherFactory.create();
+        }
+    }
+    </pre>
+    <p>
+        Дефолтный интерфейс <code>Launcher</code> содержит набор методов:
+    </p>
+    <img src="ju-5-3.png" alt="ju-5-3" width="30%">
+    <ul>
+        <li>
+            <b>discover</b> - нужен, для того чтобы найти те методы, которые нужно запустить (т.е. наши тестовые
+            методы).
+        </li>
+        <li>
+            <b>execute</b> - нужен, для того чтобы запустить найденные тесты.
+        </li>
+        <li>
+            <b>registerLauncherDiscoveryListeners</b> - отслеживает события когда находим какие-то тесты.
+        </li>
+        <li>
+            <b>registerTestExecutionListeners</b> - отслеживают выполнения каждого из этих тестов.
+        </li>
+    </ul>
+    <p>
+        Также есть и <code>DefaultLauncher</code>, который возвращается когда ничего не передаём в метод
+        <code>create()</code>.
+    </p>
+    <p>
+        Далее, можем вызвать <code>execute()</code> и выполнить тесты. В нём есть два перегруженных метода:
+        <code>TestPlan</code> (он и является основным) и <code>LauncherDiscoveryRequest</code>, который в
+        последующем оборачивается в <code>TestPlan</code>. В нашем случае создадим request при помощи объекта
+        <code>LauncherDiscoveryRequest</code> (можно и через <code>launcher.registerLauncherDiscoveryListeners()</code>):
+    </p>
+    <pre>
+    package com.kainv.junit;
+
+    import org.junit.platform.engine.discovery.DiscoverySelectors;
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.LauncherDiscoveryRequest;
+    import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+    import org.junit.platform.launcher.core.LauncherFactory;
+
+    public class TestLauncher {
+        public static void main(String[] args) {
+            Launcher launcher = LauncherFactory.create();
+
+    //        launcher.registerLauncherDiscoveryListeners();
+
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder
+                    .request()
+    //                Указываем, где наш request будет искать наши тесты
+    //                .selectors(DiscoverySelectors.selectClass(UserServiceTest.class))
+                    .selectors(DiscoverySelectors.selectPackage("com.kainv.junit.service"))
+                    .build();
+        }
+    }
+    </pre>
+    <p>
+        Теперь, в <code>launcher.execute()</code> первым параметром передаём <code>request</code> и вторым параметром
+        можем передать <code>TestExecutionListener</code> (также могли бы передать в
+        <code>launcher.registerTestExecutionListeners();</code>). Эти листенеры как раз нужны, для того чтобы увидеть
+        результат выполнения тестов потому что метод <code>execute()</code> возвращают <code>void</code>.
+    </p>
+    <pre>
+    package com.kainv.junit;
+
+    import org.junit.platform.engine.discovery.DiscoverySelectors;
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.LauncherDiscoveryRequest;
+    import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+    import org.junit.platform.launcher.core.LauncherFactory;
+    import org.junit.platform.launcher.listeners.SummaryGeneratingListener;
+
+    public class TestLauncher {
+        public static void main(String[] args) {
+            Launcher launcher = LauncherFactory.create();
+
+    //        launcher.registerLauncherDiscoveryListeners();
+    //        launcher.registerTestExecutionListeners();
+
+            SummaryGeneratingListener summaryGeneratingListener = new SummaryGeneratingListener();
+
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder
+                    .request()
+    //                Указываем, где наш request будет искать наши тесты
+    //                .selectors(DiscoverySelectors.selectClass(UserServiceTest.class))
+                    .selectors(DiscoverySelectors.selectPackage("com.kainv.junit.service"))
+                    .build();
+
+            launcher.execute(request, summaryGeneratingListener);
+        }
+    }
+    </pre>
+    <p>
+        Следовательно, для того чтобы посмотреть нашу статистику, то у
+        <code>summaryGeneratingListener.getSummary()</code>
+        после выполнения есть куча методов. Можем воспользоваться <code>.printTo()</code>, который на вход принимает
+        <code>PrintWriter</code> (а значит надо использовать try-with-resources):
+    </p>
+    <pre>
+    package com.kainv.junit;
+
+    import org.junit.platform.engine.discovery.DiscoverySelectors;
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.LauncherDiscoveryRequest;
+    import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+    import org.junit.platform.launcher.core.LauncherFactory;
+    import org.junit.platform.launcher.listeners.SummaryGeneratingListener;
+
+    import java.io.PrintWriter;
+
+    public class TestLauncher {
+        public static void main(String[] args) {
+            Launcher launcher = LauncherFactory.create();
+
+    //        launcher.registerLauncherDiscoveryListeners();
+    //        launcher.registerTestExecutionListeners();
+
+            SummaryGeneratingListener summaryGeneratingListener = new SummaryGeneratingListener();
+
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder
+                    .request()
+    //                Указываем, где наш request будет искать наши тесты
+    //                .selectors(DiscoverySelectors.selectClass(UserServiceTest.class))
+                    .selectors(DiscoverySelectors.selectPackage("com.kainv.junit.service"))
+                    .build();
+
+            launcher.execute(request, summaryGeneratingListener);
+
+    //          Выводим результат тестирования
+            try (PrintWriter writer = new PrintWriter(System.out)) {
+                summaryGeneratingListener.getSummary().printTo(writer);
+            }
+        }
+    }
+    </pre>
+    <p>
+        Запустим класс и посмотрим что выведет:
+    </p>
+    <img src="ju-5-4.png" alt="ju-5-4" width="30%">
+    <p>
+        Он обнаружил два теста, два теста запустились и эти два теста завершились успешно.
+    </p>
+    <br>
+    <p>
+        Зайдём в метод <code>execute()</code>, который выполняет наши тесты. Зайдём в <code>DefaultLauncher</code>.
+        Когда получаем <code>DiscoveryRequest</code> - мы на основании его билдим тестовый план и все равно в итоге
+        получаем реализацию класса <code>class InternalTestPlan extends TestPlan</code> (это общий объект, чтобы
+        запускать наши тесты, он содержит все по состоянию наших тестов). (10:00) И далее, в
+        <code>DefaultLauncher</code> когда выполняем <code>execute()</code> (переходим по нему) и видим, что из
+        нашего <code>InternalTestPlan</code> берутся все листенеры, которые билдятся в методе
+        <code>buildListenerRegistryForExecution</code> и если мы не передали в метод листенеры, то возвращаются те,
+        которые были зарегистрированы во время создания лаунчера. В противном случае берём общую коллекцию с нашими
+        листенерами которые зарегистрировали и + те, что передали в метод <code>execute</code>. Далее создаётся
+        общий комбинированный листенер, в котором запускается метод <code>testPlanExecutionStarted</code> и
+        <code>testPlanExecutionFinished</code> и во время него так же вызываются события нашего листенера. Т.е. только
+        через листенер мы можем посмотреть что произошло во время выполнения тестов.
+    </p>
+    <p>
+        Так же когда выполняем метод <code>create()</code>, то передаём дефолтный <code>LauncherConfig</code> для
+        создания его и создаётся <code>createDefaultLauncher()</code> в котором собираются все тестовые engine'ы.
+        В нам случае используются <code>TestEngine</code>. Это как раз относится к JUnit Engine API.
+    </p>
+</article>
+<article>
     <h1>JUnit 5. 4. Test Lifecycle</h1>
     <p>
         Познакомимся с жизненным циклом тестов.
@@ -195,7 +423,7 @@
     </p>
     <img src="ju-4-3.png" alt="ju-4-3" width="70%">
     <p>
-        Видим, что выполнилось оба теста на каждом из которых сработали <code>@BeforeEach</code> и 
+        Видим, что выполнилось оба теста на каждом из которых сработали <code>@BeforeEach</code> и
         <code>@AfterEach</code>. Более того, toString отличается у нашего объекта <code>UserServiceTest</code>.
         Следовательно, у нас выходит новое <b>правило</b>, что по умолчанию каждый раз создается новый объект
         <code>UserServiceTest</code> и в нем вызываются соответсвующее методы <code>@BeforeEach</code>, выполняется
@@ -414,7 +642,7 @@
     }
     </pre>
     <p>
-        Мы сначала написали тест, а потом функционал. Такая методология называется  <b>TTD (Test Driven
+        Мы сначала написали тест, а потом функционал. Такая методология называется <b>TTD (Test Driven
         Development)</b>.
     </p>
     <p>
@@ -456,7 +684,8 @@
     </p>
     <p>
         Класс <code>Assertions</code> необходим для того, чтобы проверять ожидаемое и актуальное значение, которое
-        получили из функций. По сути, всегда в наших тестов подаём на вход input в "черный ящик" Input -> [box == func] ->
+        получили из функций. По сути, всегда в наших тестов подаём на вход input в "черный ящик" Input -> [box == func]
+        ->
         actual output и на выходе получаем актуальные значения. В данном случае <code>assertTrue</code> принимает
         условие и если он true, то тест пройден, иначе тест проваливается. С помощью таких assert'ов происходят наши
         проверки на ожидаемые и актуальные значения. Так же можно использовать <code>assertFalse</code>:

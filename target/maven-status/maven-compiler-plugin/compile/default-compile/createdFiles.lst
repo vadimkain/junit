@@ -1,2 +1,3 @@
-com\kainv\dto\User.class
 com\kainv\service\UserService.class
+com\kainv\TestLauncher.class
+com\kainv\dto\User.class

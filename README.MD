@@ -1,263 +1,174 @@
-JUnit 5. 4. Test Lifecycle
-==========================
+JUnit 5. 5. Запуск тестов. Launcher API
+=======================================
 
-Познакомимся с жизненным циклом тестов.
-
-![ju-4-1](src/main/resources/ju-4-1.png)
-
-Когда пишем тесты в нашем `UserServiceTest`, то в этом классе у нас может быть множество таких тестов. Мы просто пишем методы и помечаем их аннотациями `@Test`. Но также нам часто надо что-то предустановить и почистить после выполнения тестов. Следственно, для этого можем написать соответствующие методы и пометить их аннотациями:
-
-*   `@BeforeEach` - если хотим что-то предустановить перед тестами.
-*   `@AfterEach` - если хотим почистить после каждого теста.
-
-Следственно, сколько будет тестов в классе, столько раз будет происходить вызов цикла `@BeforeEach` -> `@Test` -> `@AfterEach`. Если что-то хотим предустановить перед всеми вызовами этих тестов и почистить после них, то для этого есть аннотации `@BeforeAll` и `@AfterAll`.
-
-Отсюда получается жизненный цикл: сначала вызывается `@BeforeAll` перед всеми тестами -> далее происходит вызов всех наших тестов по циклу, при чем порядок не гарантирован. **Не следует** писать тесты полагаясь на вызов других тестов, наши тесты **должны быть** независимы друг от друга. Поэтому происходит череда вызовов тестов и перед каждым тестом и после него вызывается `@BeforeEach` и `@AfterEach` секция. Как только все тесты были закончены, то происходит вызов `@AfterAll`.
-
-Посмотрим как это работает на практике
+Разберёмся как удаётся запускать тесты
 --------------------------------------
 
-Для этого создадим ещё один `@Test` на добавление в `UserService` наших пользователей (заранее реализовать метод `add()` в `UserService`):
+В Java есть один единственный метод main, который можем запускать в языке программирования Java. Отсюда можем видеть то, как устроен JUnit 5:
 
-    package com.kainv.service;
-    
-    import com.kainv.dto.User;
-    
-    import java.util.ArrayList;
-    import java.util.List;
-    
-    public class UserService {
-        
-        private final List<User> users = new ArrayList<>();
-        
-        public List<User> getAll() {
-            return users;
-        }
-    
-        public boolean add(User user) {
-            return users.add(user);
-        }
-    }
-    
+![ju-5-1](src/main/resources/ju-5-1.png)
 
-    package com.kainv.junit.service;
+Когда пишем наши тесты - мы используем **_JUnit 5 API_**, который в свою очередь разбит на подпроекты.
 
-    import com.kainv.dto.User;
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.Test;
+В свою очередь для выполнения тестов нам нужен **_JUnit Engine_**, он транзитивной зависимостью предоставил JUnit 5 API.
 
-    import java.util.List;
+В свою очередь чтобы мы могли писать на разных версиях JUnit у нас есть общий API для всех test engine'ов, это **_JUnit Engine API_**. Он также является транзитивной зависимостью когда подключаем _JUnit Engine_. Эта платформа называется _junit-platform-engine_.
 
-    import static org.junit.jupiter.api.Assertions.\*;
+Если посмотрим на подключенные зависимости, то увидим, что как только подключили _junit-jupiter-engine_, то подключились _junit-jupiter-api_, который используем для написания тестов и откуда у нас есть наши `Assertions`, аннотации т.д.. И в то же самое время видим _junit-platform-engine_, который представляет API (по сути набор классов и интерфейсов), которые уже реализуются нашим _junit-jupiter-engine_ для того чтобы писать на JUnit 5. Если хотим писать на JUnit 4, то там уже будет свой engine либо можем написать даже кастомный engine и все это так же будет работать если будем использовать _junit-platform-engine_.
 
-    class UserServiceTest {
-        @Test
-        void usersEmptyIfNoUserAdded() {
-            UserService userService = new UserService();
-            List<User> users = userService.getAll();
-            assertTrue(users.isEmpty(), () -> "User list should be empty");
-        }
+![ju-5-2](src/main/resources/ju-5-2.png)
 
-        @Test
-        void usersSizeIfUserAdded() {
-            UserService userService = new UserService();
-            userService.add(new User);
-            userService.add(new User);
+В свою очередь, для запуска тестов мы используем инструменты (**_Tools_**). Все они используют **_JUnit Launcher_**. Мы можем подключить эту зависимость и с помощью её вызвать соответствующие _junit-platform-engine_ и проверить наши тесты.
 
-            // Делаем проверку на кол-во пользователей в приложении
-            List<User> users = userService.getAll();
+Подключим зависимость JUnit Launcher вручную
+--------------------------------------------
 
-            assertEquals(2, users.size());
+        <dependencies>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>5.8.0-M1</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.platform</groupId>
+                <artifactId>junit-platform-launcher</artifactId>
+                <version>1.8.0-M1</version>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+
+
+И напишем свой класс с методом `main`, который запускает наши тесты. В методе `main` нужно создать `Launcher`, его объект.
+
+    package com.kainv;
+
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.core.LauncherFactory;
+
+    public class TestLauncher {
+        public static void main(String\[\] args) {
+            Launcher launcher = LauncherFactory.create();
         }
     }
 
 
-И вызовем тесты:
+Дефолтный интерфейс `Launcher` содержит набор методов:
 
-![ju-4-2](src/main/resources/ju-4-2.png)
+![ju-5-3](src/main/resources/ju-5-3.png)
 
-Теперь используем `@BeforeEach`. Т.е. перед тем как выполняются все наши тесты, я хочу что-то подготовить. Т.к. у нас два раза повторяется инициализация `UserService` в тест-методах, то значит, что можем эту инициализацию вынести в метод с аннотацией `@BeforeEach`.
+*   **discover** - нужен, для того чтобы найти те методы, которые нужно запустить (т.е. наши тестовые методы).
+*   **execute** - нужен, для того чтобы запустить найденные тесты.
+*   **registerLauncherDiscoveryListeners** - отслеживает события когда находим какие-то тесты.
+*   **registerTestExecutionListeners** - отслеживают выполнения каждого из этих тестов.
 
-Так же создаём `@AfterEach` в котором выполняем какую-нибудь очистку. Например, данные из баз данных если в наших тестах делаем какие-то insert'ы и прочее для того чтобы следующий тест независил от этих данных.
+Также есть и `DefaultLauncher`, который возвращается когда ничего не передаём в метод `create()`.
 
-    package com.kainv.junit.service;
+Далее, можем вызвать `execute()` и выполнить тесты. В нём есть два перегруженных метода: `TestPlan` (он и является основным) и `LauncherDiscoveryRequest`, который в последующем оборачивается в `TestPlan`. В нашем случае создадим request при помощи объекта `LauncherDiscoveryRequest` (можно и через `launcher.registerLauncherDiscoveryListeners()`):
 
-    import com.kainv.dto.User;
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.AfterEach;
-    import org.junit.jupiter.api.BeforeEach;
-    import org.junit.jupiter.api.Test;
+    package com.kainv.junit;
 
-    import java.util.List;
+    import org.junit.platform.engine.discovery.DiscoverySelectors;
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.LauncherDiscoveryRequest;
+    import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+    import org.junit.platform.launcher.core.LauncherFactory;
 
-    import static org.junit.jupiter.api.Assertions.\*;
+    public class TestLauncher {
+        public static void main(String\[\] args) {
+            Launcher launcher = LauncherFactory.create();
 
-    class UserServiceTest {
+    //        launcher.registerLauncherDiscoveryListeners();
 
-        private UserService userService;
-
-        @BeforeEach
-        void prepare() {
-            System.out.println("Before each: " + this);
-            userService = new UserService();
-        }
-
-        @Test
-        void usersEmptyIfNoUserAdded() {
-            System.out.println("Test 1: " + this);
-            List<User> users = userService.getAll();
-            assertTrue(users.isEmpty(), () -> "User list should be empty");
-        }
-
-        @Test
-        void usersSizeIfUserAdded() {
-            System.out.println("Test 2: " + this);
-            userService.add(new User());
-            userService.add(new User());
-
-            // Делаем проверку на кол-во пользователей в приложении
-            List<User> users = userService.getAll();
-
-            assertEquals(2, users.size());
-        }
-
-        @AfterEach
-        void deleteDataFromDatabase() {
-            System.out.println("After each: " + this);
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder
+                    .request()
+    //                Указываем, где наш request будет искать наши тесты
+    //                .selectors(DiscoverySelectors.selectClass(UserServiceTest.class))
+                    .selectors(DiscoverySelectors.selectPackage("com.kainv.junit.service"))
+                    .build();
         }
     }
 
 
-Теперь запустим и проверим что у нас получится:
+Теперь, в `launcher.execute()` первым параметром передаём `request` и вторым параметром можем передать `TestExecutionListener` (также могли бы передать в `launcher.registerTestExecutionListeners();`). Эти листенеры как раз нужны, для того чтобы увидеть результат выполнения тестов потому что метод `execute()` возвращают `void`.
 
-![ju-4-3](src/main/resources/ju-4-3.png)
+    package com.kainv.junit;
 
-Видим, что выполнилось оба теста на каждом из которых сработали `@BeforeEach` и `@AfterEach`. Более того, toString отличается у нашего объекта `UserServiceTest`. Следовательно, у нас выходит новое **правило**, что по умолчанию каждый раз создается новый объект `UserServiceTest` и в нем вызываются соответсвующее методы `@BeforeEach`, выполняется тест и вызывается `@AfterEach`. Так будет после каждого метода. Это безопасно для нас чтобы не изменялось состояние наших объектов. В данном случае полей нашего класса `UserServiceTest`.
+    import org.junit.platform.engine.discovery.DiscoverySelectors;
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.LauncherDiscoveryRequest;
+    import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+    import org.junit.platform.launcher.core.LauncherFactory;
+    import org.junit.platform.launcher.listeners.SummaryGeneratingListener;
 
-Последнее это `@BeforeAll` & `@AfterAll`, где будет проходить инициализация для всех тестов происходить.
+    public class TestLauncher {
+        public static void main(String\[\] args) {
+            Launcher launcher = LauncherFactory.create();
 
-Если попробуем запустить, то будет ошибка потому что методы `@BeforeAll` & `@AfterAll` должны быть `static`. По умолчанию у нас есть жизненный цикл наших тестов и можем его задавать через аннотацию `@TestInstance` и по умолчанию это `@TestInstance(TestInstance.Lifecycle.PER_METHOD)`. Т.е. каждый раз создаётся новая сущность `UserServiceTest` и вызывается `@BeforeEach` -> `@Test` -> `@AfterEach`. Следовательно, `@BeforeAll` & `@AfterAll` не могут быть не статическими потому что нужно как-то один раз вызвать перед тестами и один раз вызвать после всех тестов.
+    //        launcher.registerLauncherDiscoveryListeners();
+    //        launcher.registerTestExecutionListeners();
 
-Теперь можем запустить тесты и все будет работать:
+            SummaryGeneratingListener summaryGeneratingListener = new SummaryGeneratingListener();
 
-    package com.kainv.junit.service;
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder
+                    .request()
+    //                Указываем, где наш request будет искать наши тесты
+    //                .selectors(DiscoverySelectors.selectClass(UserServiceTest.class))
+                    .selectors(DiscoverySelectors.selectPackage("com.kainv.junit.service"))
+                    .build();
 
-    import com.kainv.dto.User;
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.\*;
-
-    import java.util.List;
-
-    import static org.junit.jupiter.api.Assertions.\*;
-
-    @TestInstance(TestInstance.Lifecycle.PER\_METHOD)
-    class UserServiceTest {
-
-        private UserService userService;
-
-        @BeforeAll
-        static void init() {
-            System.out.println("Before all");
-        }
-
-        @BeforeEach
-        void prepare() {
-            System.out.println("Before each: " + this);
-            userService = new UserService();
-        }
-
-        @Test
-        void usersEmptyIfNoUserAdded() {
-            System.out.println("Test 1: " + this);
-            List<User> users = userService.getAll();
-            assertTrue(users.isEmpty(), () -> "User list should be empty");
-        }
-
-        @Test
-        void usersSizeIfUserAdded() {
-            System.out.println("Test 2: " + this);
-            userService.add(new User());
-            userService.add(new User());
-
-            // Делаем проверку на кол-во пользователей в приложении
-            List<User> users = userService.getAll();
-
-            assertEquals(2, users.size());
-        }
-
-        @AfterEach
-        void deleteDataFromDatabase() {
-            System.out.println("After each: " + this);
-        }
-
-        @AfterAll
-        static void closeConnectionPool() {
-            System.out.println("After all");
+            launcher.execute(request, summaryGeneratingListener);
         }
     }
 
 
-![ju-4-4](src/main/resources/ju-4-4.png)
+Следовательно, для того чтобы посмотреть нашу статистику, то у `summaryGeneratingListener.getSummary()` после выполнения есть куча методов. Можем воспользоваться `.printTo()`, который на вход принимает `PrintWriter` (а значит надо использовать try-with-resources):
 
-Но если сделаем `TestInstance.Lifecycle.PER_CLASS`, то уже нет необходимости делать `static` потому что тогда и так создаем лишь один объект `UserServiceTest` для всех тестов.
+    package com.kainv.junit;
 
-    package com.kainv.junit.service;
+    import org.junit.platform.engine.discovery.DiscoverySelectors;
+    import org.junit.platform.launcher.Launcher;
+    import org.junit.platform.launcher.LauncherDiscoveryRequest;
+    import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+    import org.junit.platform.launcher.core.LauncherFactory;
+    import org.junit.platform.launcher.listeners.SummaryGeneratingListener;
 
-    import com.kainv.dto.User;
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.\*;
+    import java.io.PrintWriter;
 
-    import java.util.List;
+    public class TestLauncher {
+        public static void main(String\[\] args) {
+            Launcher launcher = LauncherFactory.create();
 
-    import static org.junit.jupiter.api.Assertions.\*;
+    //        launcher.registerLauncherDiscoveryListeners();
+    //        launcher.registerTestExecutionListeners();
 
-    @TestInstance(TestInstance.Lifecycle.PER\_CLASS)
-    class UserServiceTest {
+            SummaryGeneratingListener summaryGeneratingListener = new SummaryGeneratingListener();
 
-        private UserService userService;
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder
+                    .request()
+    //                Указываем, где наш request будет искать наши тесты
+    //                .selectors(DiscoverySelectors.selectClass(UserServiceTest.class))
+                    .selectors(DiscoverySelectors.selectPackage("com.kainv.junit.service"))
+                    .build();
 
-        @BeforeAll
-        void init() {
-            System.out.println("Before all" + this);
-        }
+            launcher.execute(request, summaryGeneratingListener);
 
-        @BeforeEach
-        void prepare() {
-            System.out.println("Before each: " + this);
-            userService = new UserService();
-        }
-
-        @Test
-        void usersEmptyIfNoUserAdded() {
-            System.out.println("Test 1: " + this);
-            List<User> users = userService.getAll();
-            assertTrue(users.isEmpty(), () -> "User list should be empty");
-        }
-
-        @Test
-        void usersSizeIfUserAdded() {
-            System.out.println("Test 2: " + this);
-            userService.add(new User());
-            userService.add(new User());
-
-            // Делаем проверку на кол-во пользователей в приложении
-            List<User> users = userService.getAll();
-
-            assertEquals(2, users.size());
-        }
-
-        @AfterEach
-        void deleteDataFromDatabase() {
-            System.out.println("After each: " + this);
-        }
-
-        @AfterAll
-        void closeConnectionPool() {
-            System.out.println("After all" + this);
+    //          Выводим результат тестирования
+            try (PrintWriter writer = new PrintWriter(System.out)) {
+                summaryGeneratingListener.getSummary().printTo(writer);
+            }
         }
     }
 
 
-![ju-4-5](src/main/resources/ju-4-5.png)
+Запустим класс и посмотрим что выведет:
 
-Видим, что теперь везде одинаковые ссылки.
+![ju-5-4](src/main/resources/ju-5-4.png)
+
+Он обнаружил два теста, два теста запустились и эти два теста завершились успешно.
+
+
+
+Зайдём в метод `execute()`, который выполняет наши тесты. Зайдём в `DefaultLauncher`. Когда получаем `DiscoveryRequest` - мы на основании его билдим тестовый план и все равно в итоге получаем реализацию класса `class InternalTestPlan extends TestPlan` (это общий объект, чтобы запускать наши тесты, он содержит все по состоянию наших тестов). (10:00) И далее, в `DefaultLauncher` когда выполняем `execute()` (переходим по нему) и видим, что из нашего `InternalTestPlan` берутся все листенеры, которые билдятся в методе `buildListenerRegistryForExecution` и если мы не передали в метод листенеры, то возвращаются те, которые были зарегистрированы во время создания лаунчера. В противном случае берём общую коллекцию с нашими листенерами которые зарегистрировали и + те, что передали в метод `execute`. Далее создаётся общий комбинированный листенер, в котором запускается метод `testPlanExecutionStarted` и `testPlanExecutionFinished` и во время него так же вызываются события нашего листенера. Т.е. только через листенер мы можем посмотреть что произошло во время выполнения тестов.
+
+Так же когда выполняем метод `create()`, то передаём дефолтный `LauncherConfig` для создания его и создаётся `createDefaultLauncher()` в котором собираются все тестовые engine'ы. В нам случае используются `TestEngine`. Это как раз относится к JUnit Engine API.
