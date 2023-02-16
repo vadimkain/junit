@@ -40,6 +40,272 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 6. Test Driven Development. TDD</h1>
+    <img src="ju-6-1.png" alt="ju-6-1" width="30%">
+    <p>
+        Суть её в том, что в процессе разработки ПО мы сначала пишем тесты, а за тем уже основной функционал, который
+        покрываем этими тестами. Этот процесс можно разбить на шаги:
+    </p>
+    <ol>
+        <li>
+            Добавить тест на новую функциональность.
+        </li>
+        <li>
+            Запустить тест. Естественно, вначале не получится запустить потому что будет ошибки компиляции. В итоге
+            увидим, что тест не прошёл.
+        </li>
+        <li>
+            Пишем код, чтобы тест прошёл
+        </li>
+        <li>
+            Убеждаемся, что все другие тесты прошли. Это важный шаг. Здесь также ключевую роль играет <b>регрессия</b>,
+            т.е. проверка того, что мы не нарушили существующий код. Это потому что пишем не только новый функционал,
+            но и также изменяем его. Следственно, чтобы не нарушить ничего нас и спасают наши тесты, которые писали до
+            этого. Поэтому, в четвертом шаге убеждаемся, что они (тесты) так же прошли.
+        </li>
+        <li>
+            После чего выполняем рефакторинг кода. Это тоже один из важных шагов потому что есть хороший принцип, что
+            должны после себя оставить код лучше, чем когда в первый раз видели. Так же сюда можно отнести принцип
+            разбитого окна (книга программист-прагматик).
+        </li>
+    </ol>
+    <p>
+        Если рассматривать упрощённую систему TDD, то получаются три главных шага:
+    </p>
+    <ol>
+        <li>
+            <b>RED</b>
+        </li>
+        <li>
+            <b>GREEN</b>
+        </li>
+        <li>
+            <b>REFACTOR</b>
+        </li>
+    </ol>
+    <h2>На примере UserService реализуем TDD</h2>
+    <p>
+        Создадим функцию авторизации пользователя в системе. Первым тестом будет тест на успешную авторизацию, если
+        пользователь существует. Помимо этого в pom.xml подключим зависимость к lombok.
+    </p>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+    import java.util.Optional;
+
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    public class UserServiceTest {
+
+        private UserService userService;
+        private static final User VADIM = User.of(1, "Vadim", "123");
+        private static final User PETR = User.of(2, "Petr", "123");
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @Test
+        void loginSuccessIfUserExists() {
+            userService.add(VADIM);
+            userService.add(PETR);
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+            // Проверяем, что такой пользователь существует
+            assertTrue(maybeUser.isPresent());
+            // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+            maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+    }
+    </pre>
+    <p>
+        Теперь реализовываем функционал для <code>userService.login()</code>:
+    </p>
+    <pre>
+    package com.kainv.service;
+
+    import com.kainv.dto.User;
+
+    import java.util.ArrayList;
+    import java.util.List;
+    import java.util.Optional;
+
+    public class UserService {
+
+        private final List&lt;User> users = new ArrayList&lt;>();
+
+        public List&lt;User> getAll() {
+            return users;
+        }
+
+        public boolean add(User user) {
+            return users.add(user);
+        }
+
+        public Optional&lt;User> login(String username, String password) {
+            return users.stream()
+                    .filter(user -> user.getUsername().equals(username))
+                    .filter(user -> user.getPassword().equals(password))
+                    .findFirst();
+        }
+    }
+    </pre>
+    <p>
+        Запускаем тесты и проверяем:
+    </p>
+    <img src="ju-6-2.png" alt="ju-6-2" width="60%">
+    <p>
+        Видим, что тест прошел успешно. Мы не изменяли другие методы и следовательно, маловероятно, что мы могли что-то
+        повредить. Тем не менее шанс есть. Продолжаем писать функционал: на случай, если пароль неправильный.
+    </p>
+    <p>
+        И сделаем проверку, если пользователя не существует.
+    </p>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+    import java.util.Optional;
+
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    public class UserServiceTest {
+
+        private UserService userService;
+        private static final User VADIM = User.of(1, "Vadim", "123");
+        private static final User PETR = User.of(2, "Petr", "123");
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertEquals(2, users.size());
+        }
+
+        @Test
+        void loginSuccessIfUserExists() {
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+            // Проверяем, что такой пользователь существует
+            assertTrue(maybeUser.isPresent());
+            // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+            maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        }
+
+        @Test
+        void loginFailIfPasswordIsNotCorrect() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @Test
+        void loginFailIfUserDoesNotExist() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login("Dima", VADIM.getPassword());
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+    }
+
+    </pre>
+    <p>
+        В итоге получается, что мы сначала подготавливаем какие-то данные, вторым шагом делаем запрос на ту функцию,
+        которую проверяем и третий шаг - добавляем <code>assert</code>'ы на то, что сделали.
+    </p>
+    <p>
+        Проверим, что все тесты проходят:
+    </p>
+
+</article>
+<article>
     <h1>JUnit 5. 5. Запуск тестов. Launcher API</h1>
     <h2>Разберёмся как удаётся запускать тесты</h2>
     <p>
@@ -241,6 +507,30 @@
     </pre>
     <p>
         Запустим класс и посмотрим что выведет:
+    </p>
+    <img src="ju-5-4.png" alt="ju-5-4" width="30%">
+    <p>
+        Он обнаружил два теста, два теста запустились и эти два теста завершились успешно.
+    </p>
+    <br>
+    <p>
+        Зайдём в метод <code>execute()</code>, который выполняет наши тесты. Зайдём в <code>DefaultLauncher</code>.
+        Когда получаем <code>DiscoveryRequest</code> - мы на основании его билдим тестовый план и все равно в итоге
+        получаем реализацию класса <code>class InternalTestPlan extends TestPlan</code> (это общий объект, чтобы
+        запускать наши тесты, он содержит все по состоянию наших тестов). (10:00) И далее, в
+        <code>DefaultLauncher</code> когда выполняем <code>execute()</code> (переходим по нему) и видим, что из
+        нашего <code>InternalTestPlan</code> берутся все листенеры, которые билдятся в методе
+        <code>buildListenerRegistryForExecution</code> и если мы не передали в метод листенеры, то возвращаются те,
+        которые были зарегистрированы во время создания лаунчера. В противном случае берём общую коллекцию с нашими
+        листенерами которые зарегистрировали и + те, что передали в метод <code>execute</code>. Далее создаётся
+        общий комбинированный листенер, в котором запускается метод <code>testPlanExecutionStarted</code> и
+        <code>testPlanExecutionFinished</code> и во время него так же вызываются события нашего листенера. Т.е. только
+        через листенер мы можем посмотреть что произошло во время выполнения тестов.
+    </p>
+    <p>
+        Так же когда выполняем метод <code>create()</code>, то передаём дефолтный <code>LauncherConfig</code> для
+        создания его и создаётся <code>createDefaultLauncher()</code> в котором собираются все тестовые engine'ы.
+        В нам случае используются <code>TestEngine</code>. Это как раз относится к JUnit Engine API.
     </p>
 </article>
 <article>

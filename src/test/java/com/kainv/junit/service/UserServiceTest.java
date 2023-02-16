@@ -5,6 +5,7 @@ import com.kainv.service.UserService;
 import org.junit.jupiter.api.*;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -12,6 +13,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class UserServiceTest {
 
     private UserService userService;
+    private static final User VADIM = User.of(1, "Vadim", "123");
+    private static final User PETR = User.of(2, "Petr", "123");
 
     @BeforeAll
     void init() {
@@ -34,13 +37,45 @@ public class UserServiceTest {
     @Test
     void usersSizeIfUserAdded() {
         System.out.println("Test 2: " + this);
-        userService.add(new User());
-        userService.add(new User());
+
+        userService.add(VADIM);
+        userService.add(PETR);
 
         // Делаем проверку на кол-во пользователей в приложении
         List<User> users = userService.getAll();
 
         assertEquals(2, users.size());
+    }
+
+    @Test
+    void loginSuccessIfUserExists() {
+        userService.add(VADIM);
+        userService.add(PETR);
+
+        Optional<User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+        // Проверяем, что такой пользователь существует
+        assertTrue(maybeUser.isPresent());
+        // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+    }
+
+    @Test
+    void loginFailIfPasswordIsNotCorrect() {
+        userService.add(VADIM);
+
+        Optional<User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+        assertTrue(maybeUser.isEmpty());
+    }
+
+    @Test
+    void loginFailIfUserDoesNotExist() {
+        userService.add(VADIM);
+
+        Optional<User> maybeUser = userService.login("Dima", VADIM.getPassword());
+
+        assertTrue(maybeUser.isEmpty());
     }
 
     @AfterEach
