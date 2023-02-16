@@ -2,11 +2,16 @@ package com.kainv.junit.service;
 
 import com.kainv.dto.User;
 import com.kainv.service.UserService;
+import org.hamcrest.MatcherAssert;
+import org.hamcrest.collection.IsEmptyCollection;
+import org.hamcrest.collection.IsMapContaining;
 import org.junit.jupiter.api.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -30,7 +35,10 @@ public class UserServiceTest {
     @Test
     void usersEmptyIfNoUserAdded() {
         System.out.println("Test 1: " + this);
+
         List<User> users = userService.getAll();
+
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
         assertTrue(users.isEmpty(), () -> "User list should be empty");
     }
 
@@ -44,7 +52,8 @@ public class UserServiceTest {
         // Делаем проверку на кол-во пользователей в приложении
         List<User> users = userService.getAll();
 
-        assertEquals(2, users.size());
+        assertThat(users).hasSize(2);
+//        assertEquals(2, users.size());
     }
 
     @Test
@@ -55,9 +64,11 @@ public class UserServiceTest {
         Optional<User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
 
         // Проверяем, что такой пользователь существует
-        assertTrue(maybeUser.isPresent());
+        assertThat(maybeUser).isPresent();
+//        assertTrue(maybeUser.isPresent());
         // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
-        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+//        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
     }
 
     @Test
@@ -67,6 +78,24 @@ public class UserServiceTest {
         Optional<User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
 
         assertTrue(maybeUser.isEmpty());
+    }
+
+    @Test
+    void usersConvertedToMapById() {
+        userService.add(VADIM, PETR);
+
+        Map<Integer, User> users = userService.getAllConvertedById();
+
+        MatcherAssert.assertThat(users, IsMapContaining.hasKey(VADIM.getId()));
+
+        assertAll(
+                () ->
+                        // В результирующей коллекции проверяем на содержание ID для Вадима и Петра
+                        assertThat(users).containsKeys(VADIM.getId(), PETR.getId()),
+                () ->
+                        // Проверяем Map не только на содержание, но и значений
+                        assertThat(users).containsValues(VADIM, PETR)
+        );
     }
 
     @Test

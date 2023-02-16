@@ -1,108 +1,58 @@
-JUnit 5. 6. Test Driven Development. TDD
-========================================
+JUnit 5. 7. AssertJ & Hamcrest
+==============================
 
-![ju-6-1](src/main/resources/ju-6-1.png)
+Существуют дополнительные библиотеки которые можем подключать в наш проект и предоставлять более обширный API для наших ассертов. Это **AssertJ** & **Hamcrest**. Разберёмся с каждой из них.
 
-Суть её в том, что в процессе разработки ПО мы сначала пишем тесты, а за тем уже основной функционал, который покрываем этими тестами. Этот процесс можно разбить на шаги:
+AssertJ
+-------
 
-1.  Добавить тест на новую функциональность.
-2.  Запустить тест. Естественно, вначале не получится запустить потому что будет ошибки компиляции. В итоге увидим, что тест не прошёл.
-3.  Пишем код, чтобы тест прошёл
-4.  Убеждаемся, что все другие тесты прошли. Это важный шаг. Здесь также ключевую роль играет **регрессия**, т.е. проверка того, что мы не нарушили существующий код. Это потому что пишем не только новый функционал, но и также изменяем его. Следственно, чтобы не нарушить ничего нас и спасают наши тесты, которые писали до этого. Поэтому, в четвертом шаге убеждаемся, что они (тесты) так же прошли.
-5.  После чего выполняем рефакторинг кода. Это тоже один из важных шагов потому что есть хороший принцип, что должны после себя оставить код лучше, чем когда в первый раз видели. Так же сюда можно отнести принцип разбитого окна (книга программист-прагматик).
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.19.0</version>
+            <scope>test</scope>
+        </dependency>
 
-Если рассматривать упрощённую систему TDD, то получаются три главных шага:
 
-1.  **RED**
-2.  **GREEN**
-3.  **REFACTOR**
+Переходим в `UserServiceTest` и к примеру заменим `assertEquals` на метод из assertj. Все AssertJ и Hamcrest имеют следующий функционал: вместо `assertEquals()`, `assertFalse()` и т.д. - они используют `asThat` и смысл в том, что передаём туда значение, которое в дальнейшем будем сравнивать (т.е. передаем сразу актуальное значение, которое будем тестировать). И далее, после того как передали в `.assertThat()`, мы уже можем вызывать невероятно большое кол-во проверок (т.е. сравнение актуального значения с каким-то ожидаемым):
 
-На примере UserService реализуем TDD
-------------------------------------
+![ju-7-1](src/main/resources/ju-7-1.png)
 
-Создадим функцию авторизации пользователя в системе. Первым тестом будет тест на успешную авторизацию, если пользователь существует. Помимо этого в pom.xml подключим зависимость к lombok.
+В нашем случае, когда нужно сравнивать размер - обращаемся к методу `.hasSize()`.
 
-    package com.kainv.junit.service;
+        assertThat(users).hasSize(2);
 
-    import com.kainv.dto.User;
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.\*;
 
-    import java.util.List;
-    import java.util.Optional;
+Т.е. проверяем, что размер списка пользователей равен двум. То же самое и с Optional'ами:
 
-    import static org.junit.jupiter.api.Assertions.\*;
-
-    @TestInstance(TestInstance.Lifecycle.PER\_CLASS)
-    public class UserServiceTest {
-
-        private UserService userService;
-        private static final User VADIM = User.of(1, "Vadim", "123");
-        private static final User PETR = User.of(2, "Petr", "123");
-
-        @BeforeAll
-        void init() {
-            System.out.println("Before all" + this);
-        }
-
-        @BeforeEach
-        void prepare() {
-            System.out.println("Before each: " + this);
-            userService = new UserService();
-        }
-
-        @Test
-        void usersEmptyIfNoUserAdded() {
-            System.out.println("Test 1: " + this);
-            List<User> users = userService.getAll();
-            assertTrue(users.isEmpty(), () -> "User list should be empty");
-        }
-
-        @Test
-        void usersSizeIfUserAdded() {
-            System.out.println("Test 2: " + this);
-            userService.add(VADIM);
-            userService.add(PETR);
-
-            // Делаем проверку на кол-во пользователей в приложении
-            List<User> users = userService.getAll();
-
-            assertEquals(2, users.size());
-        }
+**UserServiceTest.java**
 
         @Test
         void loginSuccessIfUserExists() {
             userService.add(VADIM);
             userService.add(PETR);
+
             Optional<User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
 
             // Проверяем, что такой пользователь существует
-            assertTrue(maybeUser.isPresent());
+            assertThat(maybeUser).isPresent();
+    //        assertTrue(maybeUser.isPresent());
             // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
-            maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+            maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+    //        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
         }
 
-        @AfterEach
-        void deleteDataFromDatabase() {
-            System.out.println("After each: " + this);
-        }
 
-        @AfterAll
-        void closeConnectionPool() {
-            System.out.println("After all" + this);
-        }
-    }
-
-
-Теперь реализовываем функционал для `userService.login()`:
+Так же в нем удобно тестировать такие коллекции как Map. Например, сделаем метод в `UserService`, который возвращает `Map` пользователей, где ключом является их ID (предварительно немного поменяем метод `add()` в `UserService`:
 
     package com.kainv.service;
 
     import com.kainv.dto.User;
 
-    import java.util.ArrayList;
-    import java.util.List;
-    import java.util.Optional;
+    import java.util.\*;
+
+    import static java.util.function.Function.identity;
+    import static java.util.stream.Collectors.toMap;
 
     public class UserService {
 
@@ -112,8 +62,8 @@ JUnit 5. 6. Test Driven Development. TDD
             return users;
         }
 
-        public boolean add(User user) {
-            return users.add(user);
+        public void add(User... users) {
+            this.users.addAll(Arrays.asList(users));
         }
 
         public Optional<User> login(String username, String password) {
@@ -122,16 +72,13 @@ JUnit 5. 6. Test Driven Development. TDD
                     .filter(user -> user.getPassword().equals(password))
                     .findFirst();
         }
+
+        public Map<Integer, User> getAllConvertedById() {
+            return users.stream().collect(toMap(User::getId, identity()));
+        }
     }
 
-
-Запускаем тесты и проверяем:
-
-![ju-6-2](src/main/resources/ju-6-2.png)
-
-Видим, что тест прошел успешно. Мы не изменяли другие методы и следовательно, маловероятно, что мы могли что-то повредить. Тем не менее шанс есть. Продолжаем писать функционал: на случай, если пароль неправильный.
-
-И сделаем проверку, если пользователя не существует.
+    
 
     package com.kainv.junit.service;
 
@@ -140,8 +87,10 @@ JUnit 5. 6. Test Driven Development. TDD
     import org.junit.jupiter.api.\*;
 
     import java.util.List;
+    import java.util.Map;
     import java.util.Optional;
 
+    import static org.assertj.core.api.Assertions.assertThat;
     import static org.junit.jupiter.api.Assertions.\*;
 
     @TestInstance(TestInstance.Lifecycle.PER\_CLASS)
@@ -179,7 +128,8 @@ JUnit 5. 6. Test Driven Development. TDD
             // Делаем проверку на кол-во пользователей в приложении
             List<User> users = userService.getAll();
 
-            assertEquals(2, users.size());
+            assertThat(users).hasSize(2);
+    //        assertEquals(2, users.size());
         }
 
         @Test
@@ -190,9 +140,11 @@ JUnit 5. 6. Test Driven Development. TDD
             Optional<User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
 
             // Проверяем, что такой пользователь существует
-            assertTrue(maybeUser.isPresent());
+            assertThat(maybeUser).isPresent();
+    //        assertTrue(maybeUser.isPresent());
             // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
-            maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+            maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+    //        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
         }
 
         @Test
@@ -202,6 +154,24 @@ JUnit 5. 6. Test Driven Development. TDD
             Optional<User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
 
             assertTrue(maybeUser.isEmpty());
+        }
+
+        @Test
+        void usersConvertedToMapById() {
+            userService.add(VADIM, PETR);
+
+            Map<Integer, User> users = userService.getAllConvertedById();
+
+
+            assertAll(
+                    () ->
+                            // В результирующей коллекции проверяем на содержание ID для Вадима и Петра
+                            assertThat(users).containsKeys(VADIM.getId(), PETR.getId()),
+                    () ->
+                            // Проверяем Map не только на содержание, но и значений
+                            assertThat(users).containsValues(VADIM, PETR)
+            );
+
         }
 
         @Test
@@ -226,8 +196,85 @@ JUnit 5. 6. Test Driven Development. TDD
 
 
 
-В итоге получается, что мы сначала подготавливаем какие-то данные, вторым шагом делаем запрос на ту функцию, которую проверяем и третий шаг - добавляем `assert`'ы на то, что сделали.
+Используем `assertAll()` чтобы все ассерт проверились (потому что если один ассерт провалится, то дальше ассерты не будут провериться).
 
-Проверим, что все тесты проходят:
+Запускаем тесты и проверяем, что наш функционал работает:
 
-![ju-6-3](src/main/resources/ju-6-3.png)
+![ju-7-2](src/main/resources/ju-7-2.png)
+
+Hamcrest
+--------
+
+Эта библиотека была как транзитивная зависимость в JUnit 4. Подключим его и увидим, что подтягивается зависимость. Но в транзитивной зависимости этого недостаточно. Поэтому подключаем дополнительную зависимость:
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-all</artifactId>
+            <version>1.3</version>
+            <scope>test</scope>
+        </dependency>
+
+
+В этом случае у нас будет гораздо больше всяких matcher'ов которые можем использовать, для того чтобы работать с коллекциями как делаем это в assertj. Только исключим hamcrest, который пришел из junit 4:
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.1</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.hamcrest</groupId>
+                    <artifactId>hamcrest-core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-all</artifactId>
+            <version>1.3</version>
+            <scope>test</scope>
+        </dependency>
+
+
+Возвращаемся в UserServiceTest и смотрим как могли бы переписать `usersConvertedToMapById()` на hamcrest. Он так же как и assertj использует `assertThat` функционал и в нем как и в случае junit передаётся два параметра: актуальное и ожидаемое:
+
+**UserServiceTest.java**
+
+    @Test
+    void usersConvertedToMapById() {
+        userService.add(VADIM, PETR);
+
+        Map<Integer, User> users = userService.getAllConvertedById();
+
+        MatcherAssert.assertThat(users, IsMapContaining.hasKey(VADIM.getId()));
+
+        assertAll(
+                () ->
+                        // В результирующей коллекции проверяем на содержание ID для Вадима и Петра
+                        assertThat(users).containsKeys(VADIM.getId(), PETR.getId()),
+                () ->
+                        // Проверяем Map не только на содержание, но и значений
+                        assertThat(users).containsValues(VADIM, PETR)
+        );
+    }
+    
+
+    @Test
+    void usersEmptyIfNoUserAdded() {
+        System.out.println("Test 1: " + this);
+
+        List<User> users = userService.getAll();
+
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+        assertTrue(users.isEmpty(), () -> "User list should be empty");
+    }
+
+
+Т.е. суть в том, что у нас есть множество всяких метчеров и они передаются как вторым параметром.

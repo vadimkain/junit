@@ -40,6 +40,221 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 7. AssertJ & Hamcrest</h1>
+    <p>
+        Существуют дополнительные библиотеки которые можем подключать в наш проект и предоставлять более обширный
+        API для наших ассертов. Это <b>AssertJ</b> & <b>Hamcrest</b>. Разберёмся с каждой из них.
+    </p>
+    <h2>AssertJ</h2>
+    <pre>
+        &lt;dependency>
+            &lt;groupId>org.assertj&lt;/groupId>
+            &lt;artifactId>assertj-core&lt;/artifactId>
+            &lt;version>3.19.0&lt;/version>
+            &lt;scope>test&lt;/scope>
+        &lt;/dependency>
+    </pre>
+    <p>
+        Переходим в <code>UserServiceTest</code> и к примеру заменим <code>assertEquals</code> на метод из assertj.
+        Все AssertJ и Hamcrest имеют следующий функционал: вместо <code>assertEquals()</code>,
+        <code>assertFalse()</code> и т.д. - они используют <code>asThat</code> и смысл в том, что передаём туда значение,
+        которое в дальнейшем будем сравнивать (т.е. передаем сразу актуальное значение, которое будем тестировать).
+        И далее, после того как передали в <code>.assertThat()</code>, мы уже можем вызывать невероятно большое
+        кол-во проверок (т.е. сравнение актуального значения с каким-то ожидаемым):
+    </p>
+    <img src="ju-7-1.png" alt="ju-7-1" width="60%">
+    <p>
+        В нашем случае, когда нужно сравнивать размер - обращаемся к методу <code>.hasSize()</code>.
+    </p>
+    <pre>
+        assertThat(users).hasSize(2);
+    </pre>
+    <p>
+        Т.е. проверяем, что размер списка пользователей равен двум. То же самое и с Optional'ами:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void loginSuccessIfUserExists() {
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+            // Проверяем, что такой пользователь существует
+            assertThat(maybeUser).isPresent();
+    //        assertTrue(maybeUser.isPresent());
+            // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+            maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+    //        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        }
+    </pre>
+    <p>
+        Так же в нем удобно тестировать такие коллекции как Map. Например, сделаем метод в <code>UserService</code>,
+        который возвращает <code>Map</code> пользователей, где ключом является их ID (предварительно немного
+        поменяем метод <code>add()</code> в <code>UserService</code>:
+    </p>
+    <pre>
+    package com.kainv.service;
+
+    import com.kainv.dto.User;
+
+    import java.util.*;
+
+    import static java.util.function.Function.identity;
+    import static java.util.stream.Collectors.toMap;
+
+    public class UserService {
+
+        private final List&lt;User> users = new ArrayList&lt;>();
+
+        public List&lt;User> getAll() {
+            return users;
+        }
+
+        public void add(User... users) {
+            this.users.addAll(Arrays.asList(users));
+        }
+
+        public Optional&lt;User> login(String username, String password) {
+            return users.stream()
+                    .filter(user -> user.getUsername().equals(username))
+                    .filter(user -> user.getPassword().equals(password))
+                    .findFirst();
+        }
+
+        public Map&lt;Integer, User> getAllConvertedById() {
+            return users.stream().collect(toMap(User::getId, identity()));
+        }
+    }
+
+    </pre>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+    import java.util.Map;
+    import java.util.Optional;
+
+    import static org.assertj.core.api.Assertions.assertThat;
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    public class UserServiceTest {
+
+        private UserService userService;
+        private static final User VADIM = User.of(1, "Vadim", "123");
+        private static final User PETR = User.of(2, "Petr", "123");
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+            List&lt;User> users = userService.getAll();
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertThat(users).hasSize(2);
+    //        assertEquals(2, users.size());
+        }
+
+        @Test
+        void loginSuccessIfUserExists() {
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+            // Проверяем, что такой пользователь существует
+            assertThat(maybeUser).isPresent();
+    //        assertTrue(maybeUser.isPresent());
+            // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+            maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+    //        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        }
+
+        @Test
+        void loginFailIfPasswordIsNotCorrect() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @Test
+        void usersConvertedToMapById() {
+            userService.add(VADIM, PETR);
+
+            Map&lt;Integer, User> users = userService.getAllConvertedById();
+
+
+            assertAll(
+                    () ->
+                            // В результирующей коллекции проверяем на содержание ID для Вадима и Петра
+                            assertThat(users).containsKeys(VADIM.getId(), PETR.getId()),
+                    () ->
+                            // Проверяем Map не только на содержание, но и значений
+                            assertThat(users).containsValues(VADIM, PETR)
+            );
+
+        }
+
+        @Test
+        void loginFailIfUserDoesNotExist() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login("Dima", VADIM.getPassword());
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+    }
+
+    </pre>
+    <p>
+        Используем <code>assertAll()</code> чтобы все ассерт проверились (потому что если один ассерт провалится, то
+        дальше ассерты не будут провериться).
+    </p>
+    <p>
+        Запускаем тесты и проверяем, что наш функционал работает:
+    </p>
+    <img src="ju-7-2.png" alt="ju-7-2" width="30%">
+</article>
+<article>
     <h1>JUnit 5. 6. Test Driven Development. TDD</h1>
     <img src="ju-6-1.png" alt="ju-6-1" width="30%">
     <p>
@@ -303,7 +518,7 @@
     <p>
         Проверим, что все тесты проходят:
     </p>
-
+    <img src="ju-6-3.png" alt="ju-6-3" width="25%">
 </article>
 <article>
     <h1>JUnit 5. 5. Запуск тестов. Launcher API</h1>
