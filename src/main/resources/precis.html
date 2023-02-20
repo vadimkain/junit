@@ -40,6 +40,378 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 10. Tests order. Nested tests</h1>
+    <p>
+        Не стоит отталкиваться от того, что наши методы будут вызываться в определенном порядке потому что этот порядок
+        в JUnit 5 не определён. Т.е. есть какой-то алгоритм, который запускает наши методы тестовые в каких то классах
+        тестовых. Но он чисто используется для того чтобы при запуске нашего тестового класса эти методы всегда
+        запускались в одном и том же порядке. Но сам порядок не гарантирован. Даже есть такой
+        <i>chain gang anti-pattern</i> который как раз таки и описывает нашу ситуацию когда завязываемся на порядок
+        выполнения наших тестов. Тем не менее в JUnit 5 есть возможность указать порядок. На практике лучше стараться
+        не использовать это средство. За это отвечает аннотация <code>@TestMethodOrder()</code>, куда передаём
+        класс, который наследуется от <code>MethodOrdered</code>. Это интерфейс, в котором есть пять реализаций:
+    </p>
+    <ol>
+        <li>
+            <b>MethodName</b> - по названию наших методов в алфавитном порядке будут вызываться все наши тесты
+            устанавливаем аннотацию <code>@TestMethodOrder(MethodOrderer.MethodName.class)</code>. Запускаем и видим:
+            <br>
+            <img src="ju-10-2.png" alt="ju-10-2" width="30%">
+        </li>
+        <li>
+            <b>DisplayName</b> - на самом деле это то название, которое получаем при отображении этих тестов. Не
+            названия методов, а отображение названий этих методов. Для того чтобы создать DisplayName
+            используем специальную аннотацию <code>@DisplayName()</code> куда передаём уже строку. Например:
+            <br>
+            <b>UserServiceTest.java</b>
+            <pre>
+    @Test
+    @Order(1)
+    @DisplayName("users will be empty if no user added")
+    void usersEmptyIfNoUserAdded() {
+        System.out.println("Test 1: " + this);
+
+        List&lt;User> users = userService.getAll();
+
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+        assertTrue(users.isEmpty(), () -> "User list should be empty");
+    }
+            </pre>
+            <p>
+                И при запуске операция будет именно на <code>@DisplayName()</code>:
+            </p>
+            <img src="ju-10-3.png" alt="ju-10-3" width="30%">
+        </li>
+        <li>
+            <b>OrderAnnotation</b> - используется если хотим помечать все тесты аннотацией <code>@Order</code>. Т.е.
+            дополнительно каждый тест помечается аннотацией <code>@Order</code> и в ней есть один параметр обязательный:
+            <code>value</code>. Т.е. нумерация от 1 до бесконечности.
+            <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.hamcrest.MatcherAssert;
+    import org.hamcrest.collection.IsEmptyCollection;
+    import org.hamcrest.collection.IsMapContaining;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+    import java.util.Map;
+    import java.util.Optional;
+
+    import static org.assertj.core.api.Assertions.assertThat;
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @Tag("fast")
+    @Tag("user")
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+    public class UserServiceTest {
+
+        private UserService userService;
+        private static final User VADIM = User.of(1, "Vadim", "123");
+        private static final User PETR = User.of(2, "Petr", "123");
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        @Order(1)
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+
+            List&lt;User> users = userService.getAll();
+
+            MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        @Order(2)
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertThat(users).hasSize(2);
+    //        assertEquals(2, users.size());
+        }
+
+        @Test
+        @Tag("login")
+        void loginSuccessIfUserExists() {
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+            // Проверяем, что такой пользователь существует
+            assertThat(maybeUser).isPresent();
+    //        assertTrue(maybeUser.isPresent());
+            // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+            maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+    //        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        }
+
+        @Test
+        @Tag("login")
+        void throwExceptionIfUsernameOrPasswordIsNull() {
+            assertAll(
+                    () -> {
+                        IllegalArgumentException argumentException = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
+                        assertThat(argumentException.getMessage()).isEqualTo("username or password is null");
+                    },
+                    () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
+            );
+        }
+
+        @Test
+        @Tag("login")
+        void loginFailIfPasswordIsNotCorrect() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @Test
+        void usersConvertedToMapById() {
+            userService.add(VADIM, PETR);
+
+            Map&lt;Integer, User> users = userService.getAllConvertedById();
+
+            MatcherAssert.assertThat(users, IsMapContaining.hasKey(VADIM.getId()));
+
+            assertAll(
+                    () ->
+                            // В результирующей коллекции проверяем на содержание ID для Вадима и Петра
+                            assertThat(users).containsKeys(VADIM.getId(), PETR.getId()),
+                    () ->
+                            // Проверяем Map не только на содержание, но и значений
+                            assertThat(users).containsValues(VADIM, PETR)
+            );
+        }
+
+        @Test
+        @Tag("login")
+        void loginFailIfUserDoesNotExist() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login("Dima", VADIM.getPassword());
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+    }
+    </pre>
+            <img src="ju-10-1.png" alt="ju-10-1" width="30%">
+            <p>
+                Видим, что тесты в которых пометили порядок - запустились первыми по порядку. Остальные запустились в
+                неопределённом порядке.
+            </p>
+        </li>
+        <li>
+            <b>Random</b> - каждый раз когда вызываем тесты в <code>UserServiceTest</code> все наши тесты будут
+            выполнятся в рандомном порядке.
+        </li>
+    </ol>
+    <p>
+        Лучше <b>не использовать</b> <code>@TestMethodOrder</code> вовсе чтобы не реализовывать наш <i>chain gang
+        anti-pattern</i> и избегать всяких <i>flaky tests</i> (позже будут объяснения). <code>@DisplayName</code>
+        можно использовать, чтобы улучшить название наших тестовых методов когда их запускаем. Более того, для того
+        чтобы пойти ещё дальше, улучшить читабельность тестов и как то их разделить.
+    </p>
+    <p>
+        Например у нас много методов связанных с логином поэтому можем использовать т.н. nested-classes. Т.е. можем
+        создать внутренний класс и туда перенести все тестовые методы, которые связаны с логином:
+    </p>
+    <pre>
+    package com.kainv.junit.service;
+
+    import com.kainv.dto.User;
+    import com.kainv.service.UserService;
+    import org.hamcrest.MatcherAssert;
+    import org.hamcrest.collection.IsEmptyCollection;
+    import org.hamcrest.collection.IsMapContaining;
+    import org.junit.jupiter.api.*;
+
+    import java.util.List;
+    import java.util.Map;
+    import java.util.Optional;
+
+    import static org.assertj.core.api.Assertions.assertThat;
+    import static org.junit.jupiter.api.Assertions.*;
+
+    @Tag("fast")
+    @Tag("user")
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    @TestMethodOrder(MethodOrderer.DisplayName.class)
+    public class UserServiceTest {
+
+        private UserService userService;
+        private static final User VADIM = User.of(1, "Vadim", "123");
+        private static final User PETR = User.of(2, "Petr", "123");
+
+        @BeforeAll
+        void init() {
+            System.out.println("Before all" + this);
+        }
+
+        @BeforeEach
+        void prepare() {
+            System.out.println("Before each: " + this);
+            userService = new UserService();
+        }
+
+        @Test
+        @Order(1)
+        @DisplayName("users will be empty if no user added")
+        void usersEmptyIfNoUserAdded() {
+            System.out.println("Test 1: " + this);
+
+            List&lt;User> users = userService.getAll();
+
+            MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+            assertTrue(users.isEmpty(), () -> "User list should be empty");
+        }
+
+        @Test
+        @Order(2)
+        void usersSizeIfUserAdded() {
+            System.out.println("Test 2: " + this);
+
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            // Делаем проверку на кол-во пользователей в приложении
+            List&lt;User> users = userService.getAll();
+
+            assertThat(users).hasSize(2);
+    //        assertEquals(2, users.size());
+        }
+
+        @Test
+        void usersConvertedToMapById() {
+            userService.add(VADIM, PETR);
+
+            Map&lt;Integer, User> users = userService.getAllConvertedById();
+
+            MatcherAssert.assertThat(users, IsMapContaining.hasKey(VADIM.getId()));
+
+            assertAll(
+                    () ->
+                            // В результирующей коллекции проверяем на содержание ID для Вадима и Петра
+                            assertThat(users).containsKeys(VADIM.getId(), PETR.getId()),
+                    () ->
+                            // Проверяем Map не только на содержание, но и значений
+                            assertThat(users).containsValues(VADIM, PETR)
+            );
+        }
+
+        @AfterEach
+        void deleteDataFromDatabase() {
+            System.out.println("After each: " + this);
+        }
+
+        @AfterAll
+        void closeConnectionPool() {
+            System.out.println("After all" + this);
+        }
+
+        @Nested
+        @Tag("login")
+        class LoginTest {
+            @Test
+            void loginSuccessIfUserExists() {
+                userService.add(VADIM);
+                userService.add(PETR);
+
+                Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+                // Проверяем, что такой пользователь существует
+                assertThat(maybeUser).isPresent();
+    //        assertTrue(maybeUser.isPresent());
+                // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+                maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+    //        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+            }
+
+            @Test
+            void throwExceptionIfUsernameOrPasswordIsNull() {
+                assertAll(
+                        () -> {
+                            IllegalArgumentException argumentException = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
+                            assertThat(argumentException.getMessage()).isEqualTo("username or password is null");
+                        },
+                        () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
+                );
+            }
+
+            @Test
+            void loginFailIfPasswordIsNotCorrect() {
+                userService.add(VADIM);
+
+                Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+                assertTrue(maybeUser.isEmpty());
+            }
+
+            @Test
+            void loginFailIfUserDoesNotExist() {
+                userService.add(VADIM);
+
+                Optional&lt;User> maybeUser = userService.login("Dima", VADIM.getPassword());
+
+                assertTrue(maybeUser.isEmpty());
+            }
+        }
+    }
+    </pre>
+    <p>
+        Теперь нет нужды помечать аннотацией <code>@Tag("")</code> потому что можно поставить аннотацию над классом
+        (все методы внутри будут автоматически с этим тэгом). Чтобы внутренний класс был как обычные тесты, мы должны
+        его пометить аннотацией <code>@Nested</code>.
+    </p>
+    <p>
+        Запускаем и проверяем:
+    </p>
+    <img src="ju-10-4.png" alt="ju-10-4" width="30%">
+    <p>
+        Более того, наш <code>@DisplayName("")</code> можно использовать над <code>@Nested</code> классами и не только.
+        Следовательно, можем улучшить читабельность кода:
+    </p>
+    <pre>
+    @Nested
+    @DisplayName("test user login functionality")
+    @Tag("login")
+    class LoginTest {
+    </pre>
+    <img src="ju-10-5.png" alt="ju-10-5" width="30%">
+</article>
+<article>
     <h1>JUnit 5. 9. Tagging and Filtering</h1>
     <p>
         Тэги - это новая функциональность в JUnit 5, благодаря которой можем отфильтровывать наши тесты. Эта аннотация

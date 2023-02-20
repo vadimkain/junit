@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("fast")
 @Tag("user")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@TestMethodOrder(MethodOrderer.DisplayName.class)
 public class UserServiceTest {
 
     private UserService userService;
@@ -35,6 +36,8 @@ public class UserServiceTest {
     }
 
     @Test
+    @Order(1)
+    @DisplayName("users will be empty if no user added")
     void usersEmptyIfNoUserAdded() {
         System.out.println("Test 1: " + this);
 
@@ -45,6 +48,7 @@ public class UserServiceTest {
     }
 
     @Test
+    @Order(2)
     void usersSizeIfUserAdded() {
         System.out.println("Test 2: " + this);
 
@@ -56,44 +60,6 @@ public class UserServiceTest {
 
         assertThat(users).hasSize(2);
 //        assertEquals(2, users.size());
-    }
-
-    @Test
-    @Tag("login")
-    void loginSuccessIfUserExists() {
-        userService.add(VADIM);
-        userService.add(PETR);
-
-        Optional<User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
-
-        // Проверяем, что такой пользователь существует
-        assertThat(maybeUser).isPresent();
-//        assertTrue(maybeUser.isPresent());
-        // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
-        maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
-//        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
-    }
-
-    @Test
-    @Tag("login")
-    void throwExceptionIfUsernameOrPasswordIsNull() {
-        assertAll(
-                () -> {
-                    IllegalArgumentException argumentException = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
-                    assertThat(argumentException.getMessage()).isEqualTo("username or password is null");
-                },
-                () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
-        );
-    }
-
-    @Test
-    @Tag("login")
-    void loginFailIfPasswordIsNotCorrect() {
-        userService.add(VADIM);
-
-        Optional<User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
-
-        assertTrue(maybeUser.isEmpty());
     }
 
     @Test
@@ -114,16 +80,6 @@ public class UserServiceTest {
         );
     }
 
-    @Test
-    @Tag("login")
-    void loginFailIfUserDoesNotExist() {
-        userService.add(VADIM);
-
-        Optional<User> maybeUser = userService.login("Dima", VADIM.getPassword());
-
-        assertTrue(maybeUser.isEmpty());
-    }
-
     @AfterEach
     void deleteDataFromDatabase() {
         System.out.println("After each: " + this);
@@ -132,5 +88,54 @@ public class UserServiceTest {
     @AfterAll
     void closeConnectionPool() {
         System.out.println("After all" + this);
+    }
+
+    @Nested
+    @DisplayName("test user login functionality")
+    @Tag("login")
+    class LoginTest {
+        @Test
+        void loginSuccessIfUserExists() {
+            userService.add(VADIM);
+            userService.add(PETR);
+
+            Optional<User> maybeUser = userService.login(VADIM.getUsername(), VADIM.getPassword());
+
+            // Проверяем, что такой пользователь существует
+            assertThat(maybeUser).isPresent();
+//        assertTrue(maybeUser.isPresent());
+            // Проверяем, действительно ли это тот пользователь (первый параметр - ожидаемый, второй - фактический)
+            maybeUser.ifPresent(user -> assertThat(user).isEqualTo(VADIM));
+//        maybeUser.ifPresent(user -> assertEquals(VADIM, user));
+        }
+
+        @Test
+        void throwExceptionIfUsernameOrPasswordIsNull() {
+            assertAll(
+                    () -> {
+                        IllegalArgumentException argumentException = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
+                        assertThat(argumentException.getMessage()).isEqualTo("username or password is null");
+                    },
+                    () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
+            );
+        }
+
+        @Test
+        void loginFailIfPasswordIsNotCorrect() {
+            userService.add(VADIM);
+
+            Optional<User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+            assertTrue(maybeUser.isEmpty());
+        }
+
+        @Test
+        void loginFailIfUserDoesNotExist() {
+            userService.add(VADIM);
+
+            Optional<User> maybeUser = userService.login("Dima", VADIM.getPassword());
+
+            assertTrue(maybeUser.isEmpty());
+        }
     }
 }
