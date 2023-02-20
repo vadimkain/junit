@@ -14,6 +14,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("fast")
+@Tag("user")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class UserServiceTest {
 
@@ -57,6 +59,7 @@ public class UserServiceTest {
     }
 
     @Test
+    @Tag("login")
     void loginSuccessIfUserExists() {
         userService.add(VADIM);
         userService.add(PETR);
@@ -72,6 +75,7 @@ public class UserServiceTest {
     }
 
     @Test
+    @Tag("login")
     void throwExceptionIfUsernameOrPasswordIsNull() {
         assertAll(
                 () -> {
@@ -83,6 +87,7 @@ public class UserServiceTest {
     }
 
     @Test
+    @Tag("login")
     void loginFailIfPasswordIsNotCorrect() {
         userService.add(VADIM);
 
@@ -110,6 +115,7 @@ public class UserServiceTest {
     }
 
     @Test
+    @Tag("login")
     void loginFailIfUserDoesNotExist() {
         userService.add(VADIM);
 
