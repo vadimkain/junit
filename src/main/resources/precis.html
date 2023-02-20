@@ -40,6 +40,107 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 8. Testing exceptions</h1>
+    <p>
+        Посмотрим, как можем проверить исключительные ситуации. Т.е. когда мы в наших методах пробрасываем какие-то
+        исключения и мы хотим их как-то отловить и протестировать. Это должно быть ожидаемое поведение, что приложение
+        пробросит исключение.
+    </p>
+    <p>
+        Например, у нас есть функция <code>login()</code> в <code>UserService</code> и напишем тест, который проверяет,
+        что этот метод пробрасывает исключение, если к примеру передали null в username или password. В таком случае
+        пишем:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void throwExceptionIfUsernameOrPasswordIsNull() {
+            try {
+                userService.login(null, "some password");
+    //            тест не прошёл
+                fail("login should throw exception on null username");
+            } catch (IllegalArgumentException ex) {
+    //            тест прошел, если исключение отработало
+                assertTrue(true);
+            }
+        }
+    </pre>
+    <p>
+        Если зайдём в исходники ассертов, то в итоге, в конечном методе увидим именно пробрасывание исключений. Т.е.,
+        все ассерты - это всего лишь пробрасывание исключений. Все эти исключения - это
+        <code>AssertionFailedError</code>'ы которые наследуются от <code>AssertionError</code>, а они в свою очередь
+        наследуются от обычного <code>Error</code>, который наследует <code>Throwable</code>.
+    </p>
+    <p>
+        Теперь пишем функционал, в котором метод <code>login()</code> в <code>UserService</code> будет пробрасывать
+        исключение:
+    </p>
+    <b>UserService.java</b>
+    <pre>
+    public Optional&lt;User> login(String username, String password) {
+        if (username == null || password == null) {
+            throw new IllegalArgumentException("username or password is null");
+        }
+        return users.stream()
+                .filter(user -> user.getUsername().equals(username))
+                .filter(user -> user.getPassword().equals(password))
+                .findFirst();
+    }
+    </pre>
+    <p>
+        Запускаем тест и проверяем, что он проходит:
+    </p>
+    <img src="ju-8-1.png" alt="ju-8-1" width="30%">
+    <p>
+        Если бы мы хотели проверить несколько кейсов. Например, то, что передаём не только username null, а и password,
+        то нам нужно было бы использовать ещё один try-catch либо второй тест писать, что не очень удобно. Хотелось
+        бы что-то вроде ассертов как делали в случае проверки нашей Map и тогда в <code>assertAll</code> запихнули бы
+        сразу два тест-кейса чтобы не плодить множество тест-методов. Как раз таки для этого есть специальный
+        ассерт в JUnit 5 и этот ассерт называется <code>assertThrows()</code>, в который передаём исключение, которое
+        ожидаем получить:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    void throwExceptionIfUsernameOrPasswordIsNull() {
+        assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
+    }
+    </pre>
+    <p>
+        Более того, т.к. теперь можем проверить два тест-кейса потому что это всего лишь один ассерт, то следственно
+        можем написать <code>assertAll()</code>:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    void throwExceptionIfUsernameOrPasswordIsNull() {
+        assertAll(
+                () -> assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password")),
+                () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
+        );
+    }
+    </pre>
+    <p>
+        Такой функционал был в последних версиях JUnit 4, но до него мы могли проверить тип исключения только при
+        помощи аннотации <code>@org.junit.Test(excepted = Exception.class)</code>. В нашем случае, если делаем
+        <code>assertThrows</code>, то он ещё и возвращает исключение и можем дальше проверять его. Например, проверием
+        исключение на сообщение:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    void throwExceptionIfUsernameOrPasswordIsNull() {
+        assertAll(
+                () -> {
+                    IllegalArgumentException argumentException = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
+                    assertThat(argumentException.getMessage()).isEqualTo("username or password is null");
+                },
+                () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
+        );
+    }
+    </pre>
+</article>
+<article>
     <h1>JUnit 5. 7. AssertJ & Hamcrest</h1>
     <p>
         Существуют дополнительные библиотеки которые можем подключать в наш проект и предоставлять более обширный
@@ -57,7 +158,8 @@
     <p>
         Переходим в <code>UserServiceTest</code> и к примеру заменим <code>assertEquals</code> на метод из assertj.
         Все AssertJ и Hamcrest имеют следующий функционал: вместо <code>assertEquals()</code>,
-        <code>assertFalse()</code> и т.д. - они используют <code>asThat</code> и смысл в том, что передаём туда значение,
+        <code>assertFalse()</code> и т.д. - они используют <code>asThat</code> и смысл в том, что передаём туда
+        значение,
         которое в дальнейшем будем сравнивать (т.е. передаем сразу актуальное значение, которое будем тестировать).
         И далее, после того как передали в <code>.assertThat()</code>, мы уже можем вызывать невероятно большое
         кол-во проверок (т.е. сравнение актуального значения с каким-то ожидаемым):

@@ -72,6 +72,17 @@ public class UserServiceTest {
     }
 
     @Test
+    void throwExceptionIfUsernameOrPasswordIsNull() {
+        assertAll(
+                () -> {
+                    IllegalArgumentException argumentException = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "some password"));
+                    assertThat(argumentException.getMessage()).isEqualTo("username or password is null");
+                },
+                () -> assertThrows(IllegalArgumentException.class, () -> userService.login("some username", null))
+        );
+    }
+
+    @Test
     void loginFailIfPasswordIsNotCorrect() {
         userService.add(VADIM);
 
