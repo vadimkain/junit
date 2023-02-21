@@ -40,6 +40,223 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 11. Dependency Injection. DI</h1>
+    <p>
+        Начиная c JUnit 5 нам добавили возможность использовать такой паттерн <i>Dependency Injection</i> который
+        говорит нам о том, что есть какой-то объект либо совокупность этих объектов, который предоставляет нам
+        зависимости для других объектов.
+    </p>
+    <p>
+        Например есть <code>UserServiceTest</code>, который зависит от <code>UserService</code>. Следовательно,
+        <code>UserService</code> это зависимость у нашего <code>UserServiceTest</code>. Поэтому DI говорит нам о том,
+        что у нас есть какой-то сторонний объект, который предоставит нам этот <code>UserService</code> если
+        попросим его для нашей <code>UserServiceTest</code>.
+    </p>
+    <p>
+        Такой подход есть во многих фреймворках. В реальной практике когда используем JUnit фреймворк вместе со
+        спрингом, то используется именно DI спринга. Но если нет спринга и используем JUnit 5, то можем воспользоваться
+        DI механизмом для реализации своих нужд.
+    </p>
+    <p>
+        Например, можем создать конструктор <code>UserServiceTest</code> и в нём попросить какую-ту зависимость.
+        Например <code>TestInfo</code>, т.е. я хочу чтобы какой-то объект который занимается предоставлением
+        зависимостей мне дал объект с типом <code>TestInfo</code>. Более того, мы используем конструктор в своём
+        <code>UserServiceTest</code>, в предыдущих версиях JUnit нельзя было делать такие конструкторы с какими-то
+        параметрами потому что было обязательное требование - это то, что у тестового класса должен быть конструктор
+        без параметров.
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    UserServiceTest(TestInfo testInfo) {
+        System.out.println();
+    }
+    </pre>
+    <p>
+        Теперь, если запустим <code>UserServiceTest</code> в дебаге внутри конструктора, то увидим, что у нас в
+        <code>testInfo</code> приходит какой-то объект, который содержит информацию:
+    </p>
+    <img src="ju-11-1.png" alt="ju-11-1" width="60%">
+    <p>
+        <code>testMethod</code> говорит о том, что мы можем использовать такой механизм DI не только в конструкторах,
+        но и в тестовых методах. По сути, когда вспоминаем тему про жизненный цикл тестов, то можем использовать DI
+        для всех наших основных аннотаций (<code>@BeforeAll</code> - <code>@AfterAll</code>).
+    </p>
+    <p>
+        <b>Как работает такой механизм?</b> Есть специальный класс, который называется <code>ParameterResolver</code>
+        который наследуется от <code>Extension</code>. В <code>ParameterResolver</code> есть два метода:
+    </p>
+    <img src="ju-11-2.png" alt="ju-11-2" width="60%">
+    <p>
+        <code>supportsParameter</code> вызывается вначале когда DI фреймворк определяет, подходит ли этот
+        параметр нашего метода под наш параметр resolver который предоставит в последующем объект этого
+        типа. Если подходит, то вызывается <code>resolveParameter</code> и мы должны вернуть этот объект.
+        Если нет, то resolver параметр не возвращается.
+    </p>
+    <p>
+        Уже есть готовые параметры resolver'ы. Как раз тот <code>TestInfo</code> который видели это
+        <code>TestInfoParameterResolver</code>. Самое интересное это то, что мы можем реализовывать свои
+        ParameterResolver'ы.
+    </p>
+    <p>
+        Например, в <code>UserServiceTest</code> хотим добавить параметр-resolver который предоставит
+        <code>UserService</code>. Для этого создадим пакет <b>paramresolver</b> и создадим класс
+        <code>UserServiceParamResolver</code> и всё что необходимо сделать - это реализовать интерфейс
+        <code>ParamResolver</code>:
+    </p>
+    <pre>
+    package com.kainv.junit.paramresolver;
+
+    import org.junit.jupiter.api.extension.ExtensionContext;
+    import org.junit.jupiter.api.extension.ParameterContext;
+    import org.junit.jupiter.api.extension.ParameterResolutionException;
+    import org.junit.jupiter.api.extension.ParameterResolver;
+
+    public class UserServiceParamResolver implements ParameterResolver {
+        @Override
+        public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
+            return false;
+        }
+
+        @Override
+        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
+            return null;
+        }
+    }
+    </pre>
+    <p>
+        Теперь должны эти два метода реализовать. <code>ParameterContext</code> это объект говорящий нам всю информацию
+        о параметре, который мы в последующем либо за-inject'им (будем зависимы) вернув true либо нет вернув false.
+        У него есть куча методов, но главный из них это <code>getParameter()</code>.
+    </p>
+    <pre>
+    package com.kainv.junit.paramresolver;
+
+    import com.kainv.service.UserService;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+    import org.junit.jupiter.api.extension.ParameterContext;
+    import org.junit.jupiter.api.extension.ParameterResolutionException;
+    import org.junit.jupiter.api.extension.ParameterResolver;
+
+    public class UserServiceParamResolver implements ParameterResolver {
+        @Override
+        public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
+    //        Определим тип параметра и если он равен UserService.class, то это отличный вариант чтобы мы установили в качестве зависимости свой
+            return parameterContext.getParameter().getType() == UserService.class;
+        }
+
+        @Override
+        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
+            return new UserService();
+        }
+    }
+    </pre>
+    <p>
+        Здесь мы просто создаём через <code>new</code>, но в реальных проектах мы можем иметь более сложный механизм
+        соединения этих зависимостей.
+    </p>
+    <p>
+        Теперь в <code>UserServiceTest</code> и попросим <code>UserService</code> для нашего <code>prepare()</code>
+        метода:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @BeforeEach
+    void prepare(UserService userService) {
+        System.out.println("Before each: " + this);
+        this.userService = userService;
+    }
+    </pre>
+    <p>
+        И теперь вместо того, чтобы создавать его самим - мы просим его у нашего фреймворка. Для того чтобы использовать
+        этот <code>UserServiceParamResolver</code> мы должны помочь DI механизму. Для этого используется наша
+        Extension модель <code>@ExtendWith()</code> в которую передаём все классы-extension. Т.е. мы уходим от всех
+        правил JUnit 4 и просто добавляем какой-то функционал к нашему тесту. Т.е. реализуем его.
+    </p>
+    <pre>
+    @Tag("fast")
+    @Tag("user")
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    @TestMethodOrder(MethodOrderer.DisplayName.class)
+    @ExtendWith({
+            UserServiceParamResolver.class
+    })
+    public class UserServiceTest {
+    </pre>
+    <p>
+        Это уже как бы минус для DI механизма, что должны указывать такие ресловеры. Спринг в таком плане поможет
+        решить эту проблему. Установим брекпоинты в этих местах:
+    </p>
+    <img src="ju-11-3.png" alt="ju-11-3" width="60%">
+    <p>
+        И запустим дебаг:
+    </p>
+    <img src="ju-11-4.png" alt="ju-11-4" width="60%">
+    <p>
+        Мы пришли в <code>UserServiceParamResolver</code>. Во-первых он создаётся один раз, т.е. даже если мы несколько
+        раз пытаемся предоставить <code>UserService</code> объект в наших методах, то <code>UserServiceParamResolver</code>
+        у нас один как синглтон. Это очень важно потому что мы можем к примеру реализовать какой-то функционал для
+        кэширования объектов. Т.е. если не хотим каждый раз возвращать новый объект <code>UserService</code>, то можем
+        создать поле в <code>UserServiceParamResolver</code> и только один раз его проинициализировать.
+    </p>
+    <p>
+        Мы получили параметр <code>parameterContent</code> в котором видим, что сейчас требуется TestInfo. Т.к. это
+        ParameterResolver для UserService, то он вернёт false и <code>resolveParameter</code> не отработает.
+    </p>
+    <p>
+        Продолжим выполнение программы и получим:
+    </p>
+    <img src="ju-11-5.png" alt="ju-11-5" width="60%">
+    <p>
+        Теперь просим получить <code>UserService</code>. <code>parameterContext</code> вернёт true и вызовется
+        <code>resolveParameter</code>:
+    </p>
+    <img src="ju-11-6.png" alt="ju-11-6" width="60%">
+    <p>
+        Мы видим все тот же <code>parameterContext</code> и <code>extensionContext</code>. В <code>extensionContext</code>
+        хранится информация о нашем классе.
+    </p>
+    <h2>Что ещё есть в этом ParameterResolver'е</h2>
+    <p>
+        Мы можем закешировать <code>UserService</code>, но есть готовый инструмент для кеширования:
+        <code>extensionContext.getStore(Namespace namespace)</code>. Namespace - это по сути ключ для нашего
+        getStore. Неймспейсы можно создавать свои или использовать один глобальный:
+    </p>
+    <b>UserServiceParamResolver.java</b>
+    <pre>
+        @Override
+        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
+    //        Для методов которые требуют UserService мы возвращаем всегда один и тот же store:
+            ExtensionContext.Store store = extensionContext.getStore(ExtensionContext.Namespace.create(UserService.class));
+    //        Получаем по ключу значение
+            return store.getOrComputeIfAbsent(UserService.class, it -> new UserService());
+        }
+    </pre>
+    <p>
+        <code>.create()</code> принимает массив, поэтому можем создать какой угодно сложный ключ, чтобы возвращать один
+        объект или разные. В данном случае будет возвращаться один и тот же объект потому что мы получаем Namespace
+        один и тот же (<code>UserService</code>) но мы к примеру можем опираться не на <code>UserService.class</code>,
+        а на название метода. Тогда для каждого метода создавался бы заново наш <code>UserService</code>:
+    </p>
+    <b>UserServiceParamResolver.java</b>
+    <pre>
+        @Override
+        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
+    //        Для методов которые требуют UserService мы возвращаем всегда один и тот же store:
+            ExtensionContext.Store store = extensionContext.getStore(Namespace.create(extensionContext.getTestMethod()));
+    //        Получаем по ключу значение
+            return store.getOrComputeIfAbsent(UserService.class, it -> new UserService());
+        }
+    </pre>
+    <p>
+        Лучше метод использовать в качестве ключа в том же объекте store, чтобы не создавать новый store.
+    </p>
+    <p>
+        Таких <code>ParameterResolver</code>'ов можем создавать сколько угодно потому что <code>@ExtendWith</code>
+        принимает массив таких екстеншинов. На практике они не так часто используются потому что в основном предпочитают
+        использовать DI от Spring.
+    </p>
+</article>
+<article>
     <h1>JUnit 5. 10. Tests order. Nested tests</h1>
     <p>
         Не стоит отталкиваться от того, что наши методы будут вызываться в определенном порядке потому что этот порядок
