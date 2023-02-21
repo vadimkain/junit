@@ -8,10 +8,13 @@ import org.hamcrest.collection.IsEmptyCollection;
 import org.hamcrest.collection.IsMapContaining;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.*;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
@@ -146,5 +149,45 @@ public class UserServiceTest {
 
             assertTrue(maybeUser.isEmpty());
         }
+
+        //        Для кастомных провайдеров
+//        @ArgumentsSource()
+//        Реализовывает NullArgumentsProvider
+//        @NullSource
+//        Реализовывает EmptyArgumentsProvider
+//        @EmptySource
+//        @NullAndEmptySource
+//        Реализовывает ValueArgumentsProvider
+//        @ValueSource(strings = {
+//                "Vadim", "Petr"
+//        })
+//        @EnumSource
+//        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+//        @CsvFileSource(resources = "/login-test-data.csv", delimiter = ',', numLinesToSkip = 1)
+//        @CsvSource({
+//                "Vadim,123",
+//                "Petr,123"
+//        })
+        @ParameterizedTest(name = "{arguments} test")
+        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+        @DisplayName("login param test")
+        void loginParameterizedTest(String username, String password, Optional<User> user) {
+            userService.add(VADIM, PETR);
+
+            Optional<User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(user);
+        }
+    }
+
+    static Stream<Arguments> getArgumentsForLoginTest() {
+        return Stream.of(
+                Arguments.of("Vadim", "123", Optional.of(VADIM)),
+                Arguments.of("Petr", "123", Optional.of(PETR)),
+//                    Существующий пользователь, но неправльный пароль
+                Arguments.of("Petr", "dummy", Optional.empty()),
+//                    Пользователя не существует, а пароль существует
+                Arguments.of("dummy", "123", Optional.empty())
+        );
     }
 }

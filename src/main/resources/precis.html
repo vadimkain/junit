@@ -40,6 +40,244 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 12. Parameterized Tests</h1>
+    <p>
+        DI механизм принёс очень много полезных изменений. Т.е. на основании DI у нас появилась возможность использовать
+        такие вещи как <b>параметризованные тесты</b>.
+    </p>
+    <h2>Посмотрим что такое параметризованные тесты</h2>
+    <p>
+        Но для этого нам необходимо подключить дополнительную зависимость:
+    </p>
+    <pre>
+        &lt;dependency>
+            &lt;groupId>org.junit.jupiter&lt;/groupId>
+            &lt;artifactId>junit-jupiter-params&lt;/artifactId>
+            &lt;version>5.8.0-M1&lt;/version>
+            &lt;scope>test&lt;/scope>
+        &lt;/dependency>
+    </pre>
+    <p>
+        У нас появляется новая возможность писать тесты именно параметризованные тесты. Вместо того чтобы писать
+        аннотацию <code>@Test</code> мы используем <code>@ParameterizedTest</code>. Далее пишем как обычный тест и
+        например хотим протестировать нашу логин-функциональность большинством тест-кейсов. Т.е. когда у нас есть
+        существующий юзер и несуществующий, и проблема с юзернеймом, паролем и т.д.. Т.е. этим кейсом можем закрыть
+        сразу множество тест-кейсов. Для этого как раз таки подходят параметризованные тесты.
+    </p>
+    <p>
+        И теперь, суть его в том, что мы пишем, как обычно, но в методы передаём аргументы из параметризованного теста.
+        Т.е. берутся из DI-механизма. Мы просто просим предоставить нам поля <code>String username, String
+        password</code>.
+    </p>
+    <p>
+        Теперь, чтобы подставить username & password мы тоже должны предоставить какой-то класс, либо функциональность,
+        которая предоставит нам эти значения с помощью DI. И для этого вместе с <code>@ParameterizedTest</code> всегда
+        используется ещё одна аннотация: <code>@ArgumentsSource()</code>. Эту аннотацию можно ставить как над
+        аннотацией, так и методом. Внутри себя он содержит <code>value()</code>, который представляет класс-провайдер.
+        Его единственная задача: предоставить поток аргументов в наш метод. Он занимается тем, что находит наши
+        аргументы (в нашем случае username и password) и это все представляется в виде аргументов. А аргумент - это
+        всего лишь интерфейс, который возвращает массив объектов. Т.е. если у нас к примеру два параметра в нашем
+        методе, то это массив из двух элементов.
+    </p>
+    <p>
+        Есть уже множество готовых провайдеров. Мы можем ими воспользоваться чтобы не писать свои провайдеры:
+    </p>
+    <pre>
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+            @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+            @EmptySource
+    //        Реализовывает ValueArgumentsProvider
+            @ValueSource
+            void loginParameterizedTest(String username, String password) {
+                userService.add(VADIM, PETR);
+                Optional&lt;User> maybeUser = userService.login(username, password);
+            }
+    </pre>
+    <p>
+        Не сложно догадаться, что наши провайдеры подставляют значения в параметры. Единственное ограничение, что
+        параметр должен быть один. В нашем случае username и password - это два параметра и следовательно, что для
+        <code>@NullSource</code>, что и для <code>@EmptySource</code>, <code>@ValueSource</code> есть ограничения в
+        один единственный параметр. Поэтому и используют их довольно редко. Но если у нас одна красивая функция с
+        одним параметром, то это отличный вариант использовать <code>@NullSource</code>,<code>@EmptySource</code>,
+        <code>@ValueSource</code>.
+    </p>
+    <p>
+        Уберём один аргумент и запустим код в дебаге:
+    </p>
+    <pre>
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+            @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+            @EmptySource
+    //        @NullAndEmptySource
+    //        Реализовывает ValueArgumentsProvider
+    //        @ValueSource
+            void loginParameterizedTest(String username) {
+                userService.add(VADIM, PETR);
+                Optional&lt;User> maybeUser = userService.login(username, null);
+            }
+    </pre>
+    <img src="ju-12-1.png" alt="ju-12-1" width="60%">
+    <p>
+        Видим пустое значение в username потому что со String он работает так же как с массивами и коллекциями.
+        <code>@ValueSource</code> работает так же только с одним параметром. Например, в данном случае если у нас только
+        один параметр, то я могу предоставить <code>strings</code>:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+            @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+            @EmptySource
+    //        @NullAndEmptySource
+    //        Реализовывает ValueArgumentsProvider
+            @ValueSource(strings = {
+                    "Vadim", "Petr"
+            })
+            void loginParameterizedTest(String username) {
+                userService.add(VADIM, PETR);
+                Optional&lt;User> maybeUser = userService.login(username, null);
+            }
+    </pre>
+    <p>
+        И если запустим дебаг, то в username сначала придёт Vadim, а потом Petr. Есть ещё один тип source'ов - это
+        <code>@EnumSource</code>: используется редко - только тогда, когда у нас есть Enum вместо каких-то примитивных
+        типов либо String.
+    </p>
+    <p>
+        Что нельзя сказать про <code>@MethodSource</code> - он используется чаще всего. Мы должны предоставить ему
+        название нашего метода, который примет все эти стримы аргументов. Т.е. я должен передать метод и создать его.
+        Он должен быть статическим и возвращать <code>Stream&lt;Arguments></code>. Есть конечно ограничения, что
+        статические методы нельзя использовать во внутренних классах, следовательно, мы должны его вынести в наш
+        внешний класс. Теперь у нас нет доступа к <code>getArgumentsForLoginTest</code> методу потому что он уже
+        находится не во внутреннем классе, а в каком-то другом. Но опять же, у нас есть возможность указывать любой
+        статический метод в <code>@MethodSource</code>, не только внутри класса, где пишем метод. Для этого пишем
+        путь к методу. Пусть состоит из полного пути класса, где состоит метод.
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+    //        @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+    //        @EmptySource
+    //        @NullAndEmptySource
+    //        Реализовывает ValueArgumentsProvider
+    //        @ValueSource(strings = {
+    //                "Vadim", "Petr"
+    //        })
+    //        @EnumSource
+            @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+            void loginParameterizedTest(String username, String password, Optional&lt;User> user) {
+                userService.add(VADIM, PETR);
+
+                Optional&lt;User> maybeUser = userService.login(username, password);
+
+                assertThat(maybeUser).isEqualTo(user);
+            }
+        }
+
+        static Stream&lt;Arguments> getArgumentsForLoginTest() {
+            return Stream.of(
+                    Arguments.of("Vadim", "123", Optional.of(VADIM)),
+                    Arguments.of("Petr", "123", Optional.of(PETR)),
+    //                    Существующий пользователь, но неправильный пароль
+                    Arguments.of("Petr", "dummy", Optional.empty()),
+    //                    Пользователя не существует, а пароль существует
+                    Arguments.of("dummy", "123", Optional.empty())
+            );
+        }
+    </pre>
+    <p>
+        Таким образом мы можем сразу четыре кейса покрыть тестами. Запускаем наш тест и проверяем:
+    </p>
+    <img src="ju-12-2.png" alt="ju-12-2" width="30%">
+    <p>
+        Мы можем использовать обычный CSV формат и указать просто путь к нему. Для этого в тестовой директории создаём
+        resources и там создаём файл <b>login-test-data.csv</b>. Т.е. именно расширение csv. Суть этого формата в том,
+        что мы на каждой строке пишем какие-то значения, которые разделены любым делиметром.
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @ParameterizedTest
+        @CsvFileSource(resources = "/login-test-data.csv", delimiter = ',', numLinesToSkip = 1)
+        void loginParameterizedTest(String username, String password) {
+            userService.add(VADIM, PETR);
+
+            Optional&lt;User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(null);
+        }
+    </pre>
+    <p>
+        Если запустим этот код в дебаге, то в наши параметры передадутся все необходимые данные. Так же чтобы не
+        создавать csv файл мы можем использовать аннотацию <code>@CsvSource</code>:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @ParameterizedTest
+        @CsvSource({
+                "Vadim,123",
+                "Petr,123"
+        })
+        void loginParameterizedTest(String username, String password) {
+            userService.add(VADIM, PETR);
+
+            Optional&lt;User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(null);
+        }
+    </pre>
+    <p>
+        Так же можем именовать тесты при помощи <code>@ParameterizedTest(name = "")</code>. Внутри него есть
+        разные <i>placeholder</i>'ы:
+    </p>
+    <pre>
+        @ParameterizedTest(name = "{arguments} test")
+        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+        void loginParameterizedTest(String username, String password, Optional&lt;User> user) {
+            userService.add(VADIM, PETR);
+
+            Optional&lt;User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(user);
+        }
+    </pre>
+    <p>
+        Запустим все тесты и посмотрим на результат:
+    </p>
+    <img src="ju-12-3.png" alt="ju-12-3" width="30%">
+    <p>
+        Если хотим переименовать название теста, то используем обычный <code>@DisplayName("")</code>:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @ParameterizedTest(name = "{arguments} test")
+        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+        @DisplayName("login param test")
+        void loginParameterizedTest(String username, String password, Optional&lt;User> user) {
+            userService.add(VADIM, PETR);
+
+            Optional&lt;User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(user);
+        }
+    </pre>
+    <img src="ju-12-4.png" alt="ju-12-4" width="30%">
+</article>
+<article>
     <h1>JUnit 5. 11. Dependency Injection. DI</h1>
     <p>
         Начиная c JUnit 5 нам добавили возможность использовать такой паттерн <i>Dependency Injection</i> который
@@ -193,7 +431,8 @@
     <img src="ju-11-4.png" alt="ju-11-4" width="60%">
     <p>
         Мы пришли в <code>UserServiceParamResolver</code>. Во-первых он создаётся один раз, т.е. даже если мы несколько
-        раз пытаемся предоставить <code>UserService</code> объект в наших методах, то <code>UserServiceParamResolver</code>
+        раз пытаемся предоставить <code>UserService</code> объект в наших методах, то
+        <code>UserServiceParamResolver</code>
         у нас один как синглтон. Это очень важно потому что мы можем к примеру реализовать какой-то функционал для
         кэширования объектов. Т.е. если не хотим каждый раз возвращать новый объект <code>UserService</code>, то можем
         создать поле в <code>UserServiceParamResolver</code> и только один раз его проинициализировать.
@@ -212,7 +451,8 @@
     </p>
     <img src="ju-11-6.png" alt="ju-11-6" width="60%">
     <p>
-        Мы видим все тот же <code>parameterContext</code> и <code>extensionContext</code>. В <code>extensionContext</code>
+        Мы видим все тот же <code>parameterContext</code> и <code>extensionContext</code>. В
+        <code>extensionContext</code>
         хранится информация о нашем классе.
     </p>
     <h2>Что ещё есть в этом ParameterResolver'е</h2>

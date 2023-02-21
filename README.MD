@@ -1,157 +1,197 @@
-JUnit 5. 11. Dependency Injection. DI
-=====================================
+JUnit 5. 12. Parameterized Tests
+================================
 
-Начиная c JUnit 5 нам добавили возможность использовать такой паттерн _Dependency Injection_ который говорит нам о том, что есть какой-то объект либо совокупность этих объектов, который предоставляет нам зависимости для других объектов.
+DI механизм принёс очень много полезных изменений. Т.е. на основании DI у нас появилась возможность использовать такие вещи как **параметризованные тесты**.
 
-Например, есть `UserServiceTest`, который зависит от `UserService`. Следовательно, `UserService` это зависимость у нашего `UserServiceTest`. Поэтому DI говорит нам о том, что у нас есть какой-то сторонний объект, который предоставит нам этот `UserService` если попросим его для нашей `UserServiceTest`.
+Посмотрим что такое параметризованные тесты
+-------------------------------------------
 
-Такой подход есть во многих фреймворках. В реальной практике когда используем JUnit фреймворк вместе со спрингом, то используется именно DI спринга. Но если нет спринга и используем JUnit 5, то можем воспользоваться DI механизмом для реализации своих нужд.
+Но для этого нам необходимо подключить дополнительную зависимость:
 
-Например, можем создать конструктор `UserServiceTest` и в нём попросить какую-ту зависимость. Например `TestInfo`, т.е. я хочу чтобы какой-то объект который занимается предоставлением зависимостей мне дал объект с типом `TestInfo`. Более того, мы используем конструктор в своём `UserServiceTest`, в предыдущих версиях JUnit нельзя было делать такие конструкторы с какими-то параметрами потому что было обязательное требование - это то, что у тестового класса должен быть конструктор без параметров.
-
-**UserServiceTest.java**
-
-    UserServiceTest(TestInfo testInfo) {
-        System.out.println();
-    }
-
-
-Теперь, если запустим `UserServiceTest` в дебаге внутри конструктора, то увидим, что у нас в `testInfo` приходит какой-то объект, который содержит информацию:
-
-![ju-11-1](src/main/resources/ju-11-1.png)
-
-`testMethod` говорит о том, что мы можем использовать такой механизм DI не только в конструкторах, но и в тестовых методах. По сути, когда вспоминаем тему про жизненный цикл тестов, то можем использовать DI для всех наших основных аннотаций (`@BeforeAll` - `@AfterAll`).
-
-**Как работает такой механизм?** Есть специальный класс, который называется `ParameterResolver` который наследуется от `Extension`. В `ParameterResolver` есть два метода:
-
-![ju-11-2](src/main/resources/ju-11-2.png)
-
-`supportsParameter` вызывается вначале когда DI фреймворк определяет, подходит ли этот параметр нашего метода под наш параметр resolver который предоставит в последующем объект этого типа. Если подходит, то вызывается `resolveParameter` и мы должны вернуть этот объект. Если нет, то resolver параметр не возвращается.
-
-Уже есть готовые параметры resolver'ы. Как раз тот `TestInfo` который видели это `TestInfoParameterResolver`. Самое интересное это то, что мы можем реализовывать свои ParameterResolver'ы.
-
-Например, в `UserServiceTest` хотим добавить параметр-resolver который предоставит `UserService`. Для этого создадим пакет **paramresolver** и создадим класс `UserServiceParamResolver` и всё что необходимо сделать - это реализовать интерфейс `ParamResolver`:
-
-    package com.kainv.junit.paramresolver;
-
-    import org.junit.jupiter.api.extension.ExtensionContext;
-    import org.junit.jupiter.api.extension.ParameterContext;
-    import org.junit.jupiter.api.extension.ParameterResolutionException;
-    import org.junit.jupiter.api.extension.ParameterResolver;
-
-    public class UserServiceParamResolver implements ParameterResolver {
-        @Override
-        public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-            return false;
-        }
-
-        @Override
-        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-            return null;
-        }
-    }
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>5.8.0-M1</version>
+            <scope>test</scope>
+        </dependency>
 
 
-Теперь должны эти два метода реализовать. `ParameterContext` это объект говорящий нам всю информацию о параметре, который мы в последующем либо за-inject'им (будем зависимы) вернув true либо нет вернув false. У него есть куча методов, но главный из них это `getParameter()`.
+У нас появляется новая возможность писать тесты именно параметризованные тесты. Вместо того чтобы писать аннотацию `@Test` мы используем `@ParameterizedTest`. Далее пишем как обычный тест и например хотим протестировать нашу логин-функциональность большинством тест-кейсов. Т.е. когда у нас есть существующий юзер и несуществующий, и проблема с юзернеймом, паролем и т.д.. Т.е. этим кейсом можем закрыть сразу множество тест-кейсов. Для этого как раз таки подходят параметризованные тесты.
 
-    package com.kainv.junit.paramresolver;
+И теперь, суть его в том, что мы пишем, как обычно, но в методы передаём аргументы из параметризованного теста. Т.е. берутся из DI-механизма. Мы просто просим предоставить нам поля `String username, String password`.
 
-    import com.kainv.service.UserService;
-    import org.junit.jupiter.api.extension.ExtensionContext;
-    import org.junit.jupiter.api.extension.ParameterContext;
-    import org.junit.jupiter.api.extension.ParameterResolutionException;
-    import org.junit.jupiter.api.extension.ParameterResolver;
+Теперь, чтобы подставить username & password мы тоже должны предоставить какой-то класс, либо функциональность, которая предоставит нам эти значения с помощью DI. И для этого вместе с `@ParameterizedTest` всегда используется ещё одна аннотация: `@ArgumentsSource()`. Эту аннотацию можно ставить как над аннотацией, так и методом. Внутри себя он содержит `value()`, который представляет класс-провайдер. Его единственная задача: предоставить поток аргументов в наш метод. Он занимается тем, что находит наши аргументы (в нашем случае username и password) и это все представляется в виде аргументов. А аргумент - это всего лишь интерфейс, который возвращает массив объектов. Т.е. если у нас к примеру два параметра в нашем методе, то это массив из двух элементов.
 
-    public class UserServiceParamResolver implements ParameterResolver {
-        @Override
-        public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-    //        Определим тип параметра и если он равен UserService.class, то это отличный вариант чтобы мы установили в качестве зависимости свой
-            return parameterContext.getParameter().getType() == UserService.class;
-        }
+Есть уже множество готовых провайдеров. Мы можем ими воспользоваться чтобы не писать свои провайдеры:
 
-        @Override
-        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-            return new UserService();
-        }
-    }
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+            @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+            @EmptySource
+    //        Реализовывает ValueArgumentsProvider
+            @ValueSource
+            void loginParameterizedTest(String username, String password) {
+                userService.add(VADIM, PETR);
+                Optional<User> maybeUser = userService.login(username, password);
+            }
 
 
-Здесь мы просто создаём через `new`, но в реальных проектах мы можем иметь более сложный механизм соединения этих зависимостей.
+Не сложно догадаться, что наши провайдеры подставляют значения в параметры. Единственное ограничение, что параметр должен быть один. В нашем случае username и password - это два параметра и следовательно, что для `@NullSource`, что и для `@EmptySource`, `@ValueSource` есть ограничения в один единственный параметр. Поэтому и используют их довольно редко. Но если у нас одна красивая функция с одним параметром, то это отличный вариант использовать `@NullSource`,`@EmptySource`, `@ValueSource`.
 
-Теперь в `UserServiceTest` и попросим `UserService` для нашего `prepare()` метода:
+Уберём один аргумент и запустим код в дебаге:
+
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+            @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+            @EmptySource
+    //        @NullAndEmptySource
+    //        Реализовывает ValueArgumentsProvider
+    //        @ValueSource
+            void loginParameterizedTest(String username) {
+                userService.add(VADIM, PETR);
+                Optional<User> maybeUser = userService.login(username, null);
+            }
+
+
+![ju-12-1](src/main/resources/ju-12-1.png)
+
+Видим пустое значение в username потому что со String он работает так же как с массивами и коллекциями. `@ValueSource` работает так же только с одним параметром. Например, в данном случае если у нас только один параметр, то я могу предоставить `strings`:
 
 **UserServiceTest.java**
 
-    @BeforeEach
-    void prepare(UserService userService) {
-        System.out.println("Before each: " + this);
-        this.userService = userService;
-    }
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+            @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+            @EmptySource
+    //        @NullAndEmptySource
+    //        Реализовывает ValueArgumentsProvider
+            @ValueSource(strings = {
+                    "Vadim", "Petr"
+            })
+            void loginParameterizedTest(String username) {
+                userService.add(VADIM, PETR);
+                Optional<User> maybeUser = userService.login(username, null);
+            }
 
 
-И теперь вместо того, чтобы создавать его самим - мы просим его у нашего фреймворка. Для того чтобы использовать этот `UserServiceParamResolver` мы должны помочь DI механизму. Для этого используется наша Extension модель `@ExtendWith()` в которую передаём все классы-extension. Т.е. мы уходим от всех правил JUnit 4 и просто добавляем какой-то функционал к нашему тесту. Т.е. реализуем его.
+И если запустим дебаг, то в username сначала придёт Vadim, а потом Petr. Есть ещё один тип source'ов - это `@EnumSource`: используется редко - только тогда, когда у нас есть Enum вместо каких-то примитивных типов либо String.
 
-    @Tag("fast")
-    @Tag("user")
-    @TestInstance(TestInstance.Lifecycle.PER\_CLASS)
-    @TestMethodOrder(MethodOrderer.DisplayName.class)
-    @ExtendWith({
-            UserServiceParamResolver.class
-    })
-    public class UserServiceTest {
+Что нельзя сказать про `@MethodSource` - он используется чаще всего. Мы должны предоставить ему название нашего метода, который примет все эти стримы аргументов. Т.е. я должен передать метод и создать его. Он должен быть статическим и возвращать `Stream<Arguments>`. Есть конечно ограничения, что статические методы нельзя использовать во внутренних классах, следовательно, мы должны его вынести в наш внешний класс. Теперь у нас нет доступа к `getArgumentsForLoginTest` методу потому что он уже находится не во внутреннем классе, а в каком-то другом. Но опять же, у нас есть возможность указывать любой статический метод в `@MethodSource`, не только внутри класса, где пишем метод. Для этого пишем путь к методу. Пусть состоит из полного пути класса, где состоит метод.
 
+**UserServiceTest.java**
 
-Это уже как бы минус для DI механизма, что должны указывать такие ресловеры. Спринг в таком плане поможет решить эту проблему. Установим брекпоинты в этих местах:
+            @ParameterizedTest
+    //        Для кастомных провайдеров
+    //        @ArgumentsSource()
+    //        Реализовывает NullArgumentsProvider
+    //        @NullSource
+    //        Реализовывает EmptyArgumentsProvider
+    //        @EmptySource
+    //        @NullAndEmptySource
+    //        Реализовывает ValueArgumentsProvider
+    //        @ValueSource(strings = {
+    //                "Vadim", "Petr"
+    //        })
+    //        @EnumSource
+            @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+            void loginParameterizedTest(String username, String password, Optional<User> user) {
+                userService.add(VADIM, PETR);
 
-![ju-11-3](src/main/resources/ju-11-3.png)
+                Optional<User> maybeUser = userService.login(username, password);
 
-И запустим дебаг:
+                assertThat(maybeUser).isEqualTo(user);
+            }
+        }
 
-![ju-11-4](src/main/resources/ju-11-4.png)
-
-Мы пришли в `UserServiceParamResolver`. Во-первых он создаётся один раз, т.е. даже если мы несколько раз пытаемся предоставить `UserService` объект в наших методах, то `UserServiceParamResolver` у нас один как синглтон. Это очень важно потому что мы можем к примеру реализовать какой-то функционал для кэширования объектов. Т.е. если не хотим каждый раз возвращать новый объект `UserService`, то можем создать поле в `UserServiceParamResolver` и только один раз его проинициализировать.
-
-Мы получили параметр `parameterContent` в котором видим, что сейчас требуется TestInfo. Т.к. это ParameterResolver для UserService, то он вернёт false и `resolveParameter` не отработает.
-
-Продолжим выполнение программы и получим:
-
-![ju-11-5](src/main/resources/ju-11-5.png)
-
-Теперь просим получить `UserService`. `parameterContext` вернёт true и вызовется `resolveParameter`:
-
-![ju-11-6](src/main/resources/ju-11-6.png)
-
-Мы видим все тот же `parameterContext` и `extensionContext`. В `extensionContext` хранится информация о нашем классе.
-
-Что ещё есть в этом ParameterResolver'е
----------------------------------------
-
-Мы можем закешировать `UserService`, но есть готовый инструмент для кеширования: `extensionContext.getStore(Namespace namespace)`. Namespace - это по сути ключ для нашего getStore. Неймспейсы можно создавать свои или использовать один глобальный:
-
-**UserServiceParamResolver.java**
-
-        @Override
-        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-    //        Для методов которые требуют UserService мы возвращаем всегда один и тот же store:
-            ExtensionContext.Store store = extensionContext.getStore(ExtensionContext.Namespace.create(UserService.class));
-    //        Получаем по ключу значение
-            return store.getOrComputeIfAbsent(UserService.class, it -> new UserService());
+        static Stream<Arguments> getArgumentsForLoginTest() {
+            return Stream.of(
+                    Arguments.of("Vadim", "123", Optional.of(VADIM)),
+                    Arguments.of("Petr", "123", Optional.of(PETR)),
+    //                    Существующий пользователь, но неправильный пароль
+                    Arguments.of("Petr", "dummy", Optional.empty()),
+    //                    Пользователя не существует, а пароль существует
+                    Arguments.of("dummy", "123", Optional.empty())
+            );
         }
 
 
-`.create()` принимает массив, поэтому можем создать какой угодно сложный ключ, чтобы возвращать один объект или разные. В данном случае будет возвращаться один и тот же объект потому что мы получаем Namespace один и тот же (`UserService`) но мы к примеру можем опираться не на `UserService.class`, а на название метода. Тогда для каждого метода создавался бы заново наш `UserService`:
+Таким образом мы можем сразу четыре кейса покрыть тестами. Запускаем наш тест и проверяем:
 
-**UserServiceParamResolver.java**
+![ju-12-2](src/main/resources/ju-12-2.png)
 
-        @Override
-        public Object resolveParameter(ParameterContext parameterContext, ExtensionContext extensionContext) throws ParameterResolutionException {
-    //        Для методов которые требуют UserService мы возвращаем всегда один и тот же store:
-            ExtensionContext.Store store = extensionContext.getStore(Namespace.create(extensionContext.getTestMethod()));
-    //        Получаем по ключу значение
-            return store.getOrComputeIfAbsent(UserService.class, it -> new UserService());
+Мы можем использовать обычный CSV формат и указать просто путь к нему. Для этого в тестовой директории создаём resources и там создаём файл **login-test-data.csv**. Т.е. именно расширение csv. Суть этого формата в том, что мы на каждой строке пишем какие-то значения, которые разделены любым делиметром.
+
+**UserServiceTest.java**
+
+        @ParameterizedTest
+        @CsvFileSource(resources = "/login-test-data.csv", delimiter = ',', numLinesToSkip = 1)
+        void loginParameterizedTest(String username, String password) {
+            userService.add(VADIM, PETR);
+
+            Optional<User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(null);
         }
 
 
-Лучше метод использовать в качестве ключа в том же объекте store, чтобы не создавать новый store.
+Если запустим этот код в дебаге, то в наши параметры передадутся все необходимые данные. Так же чтобы не создавать csv файл мы можем использовать аннотацию `@CsvSource`:
 
-Таких `ParameterResolver`'ов можем создавать сколько угодно потому что `@ExtendWith` принимает массив таких екстеншинов. На практике они не так часто используются потому что в основном предпочитают использовать DI от Spring.
+**UserServiceTest.java**
+
+        @ParameterizedTest
+        @CsvSource({
+                "Vadim,123",
+                "Petr,123"
+        })
+        void loginParameterizedTest(String username, String password) {
+            userService.add(VADIM, PETR);
+
+            Optional<User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(null);
+        }
+
+
+Так же можем именовать тесты при помощи `@ParameterizedTest(name = "")`. Внутри него есть разные _placeholder_'ы:
+
+        @ParameterizedTest(name = "{arguments} test")
+        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+        void loginParameterizedTest(String username, String password, Optional<User> user) {
+            userService.add(VADIM, PETR);
+
+            Optional<User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(user);
+        }
+
+
+Запустим все тесты и посмотрим на результат:
+
+![ju-12-3](src/main/resources/ju-12-3.png)
+
+Если хотим переименовать название теста, то используем обычный `@DisplayName("")`:
+
+**UserServiceTest.java**
+
+        @ParameterizedTest(name = "{arguments} test")
+        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
+        @DisplayName("login param test")
+        void loginParameterizedTest(String username, String password, Optional<User> user) {
+            userService.add(VADIM, PETR);
+
+            Optional<User> maybeUser = userService.login(username, password);
+
+            assertThat(maybeUser).isEqualTo(user);
+        }
+
+
+![ju-12-4](src/main/resources/ju-12-4.png)
