@@ -11,9 +11,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -105,6 +107,7 @@ public class UserServiceTest {
     @Nested
     @DisplayName("test user login functionality")
     @Tag("login")
+    @Timeout(value = 200, unit = TimeUnit.MILLISECONDS)
     class LoginTest {
         @Test
         void loginSuccessIfUserExists() {
@@ -122,6 +125,7 @@ public class UserServiceTest {
         }
 
         @Test
+//        @org.junit.Test(expected = IllegalArgumentException.class)
         void throwExceptionIfUsernameOrPasswordIsNull() {
             assertAll(
                     () -> {
@@ -133,6 +137,7 @@ public class UserServiceTest {
         }
 
         @Test
+        @Disabled("flaky, need to see")
         void loginFailIfPasswordIsNotCorrect() {
             userService.add(VADIM);
 
@@ -141,13 +146,29 @@ public class UserServiceTest {
             assertTrue(maybeUser.isEmpty());
         }
 
-        @Test
-        void loginFailIfUserDoesNotExist() {
+        //        @Test
+        @RepeatedTest(value = 5, name = RepeatedTest.LONG_DISPLAY_NAME)
+        void loginFailIfUserDoesNotExist(RepetitionInfo repetitionInfo) {
             userService.add(VADIM);
 
             Optional<User> maybeUser = userService.login("Dima", VADIM.getPassword());
 
             assertTrue(maybeUser.isEmpty());
+        }
+
+        @Test
+        void checkLoginFunctionalityPerfomance() {
+            System.out.println(Thread.currentThread().getName());
+//            Тестируем время выполнения нашего теста
+            Optional<User> result = assertTimeoutPreemptively(
+                    Duration.ofMillis(200L),
+                    () -> {
+                        System.out.println(Thread.currentThread().getName());
+                        Thread.sleep(300L);
+                        return userService.login("Dima", VADIM.getPassword());
+                    }
+            );
+
         }
 
         //        Для кастомных провайдеров

@@ -40,6 +40,127 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 13. Flaky tests. Timeouts</h1>
+    <p>
+        <b>Flaky tests</b> означает, что тест не стабильный. Т.е когда запускаем наши тесты во время разработки, то
+        бывает падают тесты в рандомном месте при чем после перезапуска они могут их даже проходить при чем несколько раз.
+        Но например на четвертый запуск вновь упали. Это может быть связано как с неправильной реализацией этих тестов.
+        Опять же возвращаемся к порядку следований этих тестов. Это все тот же относится к тому, что мы не должны
+        завязываться на порядок выполнения тестов в нашем коде. Более того, это часто относится к integration и
+        даже acceptance тестам, которые задействуют например состояние нашей базы данных и могут изменять данные в ней.
+        И не почистив за собой что повлечёт за собой негативные изменения в других тестах, которые планировали
+        получить другой датасет в базе данных.
+    </p>
+    <p>
+        Поэтому так как по умолчанию поля тестов не детерминированы, следовательно, могут падать различные тесты в
+        рандомном месте. <i>Что обычно делают программисты:</i> находят этот тест (например
+        <code>loginFailIfPasswordIsNotCorrect</code>) и помечают аннотацией <code>@Disabled</code>. Т.е. эта аннотация
+        позволяет не запускать наш тест в следующий раз. Обычно пишут комментарий, у этой аннотации есть всего лишь
+        одно поле - это <code>value</code> и, например пишут:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        @Disabled("flaky, need to see")
+        void loginFailIfPasswordIsNotCorrect() {
+            userService.add(VADIM);
+
+            Optional&lt;User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+            assertTrue(maybeUser.isEmpty());
+        }
+    </pre>
+    <img src="ju-13-1.png" alt="ju-13-1" width="30%">
+    <p>
+        <b>Второй вариант</b>, как уменьшить кол-во flaky test'ов - это сделать их <b>repeatable</b>. Т.е. есть ещё одна
+        аннотация <code>@RepeatedTest()</code> в котором указывает сколько повторений должно быть и его название (есть
+        по умолчанию):
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    //        @Test
+            @RepeatedTest(value = 5, name = RepeatedTest.LONG_DISPLAY_NAME)
+            void loginFailIfUserDoesNotExist() {
+                userService.add(VADIM);
+    
+                Optional&lt;User> maybeUser = userService.login("Dima", VADIM.getPassword());
+    
+                assertTrue(maybeUser.isEmpty());
+            }
+    </pre>
+    <img src="ju-13-2.png" alt="ju-13-2" width="30%">
+    <p>
+        Таким образом мы можем улучшить наши тесты, которые поддержаны к тому, чтобы поддерживать наши flacky. Т.е. 
+        например на 3 и 4 итерации часто падает тест, хотя предыдущие два проходят. Таким образом уменьшаем кол-во
+        таких flacky-тестов. Более того, можем использовать DI механизм и передать <code>RepetitionInfo</code>.
+        По сути, это информация про кол-во итераций, про текущую итерации:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    //        @Test
+            @RepeatedTest(value = 5, name = RepeatedTest.LONG_DISPLAY_NAME)
+            void loginFailIfUserDoesNotExist(RepetitionInfo repetitionInfo) {
+                userService.add(VADIM);
+    
+                Optional&lt;User> maybeUser = userService.login("Dima", VADIM.getPassword());
+    
+                assertTrue(maybeUser.isEmpty());
+            }
+    </pre>
+    <h2>Timeout'ы</h2>
+    <p>
+        На одном из предыдущих занятий мы видили, что в старом JUnit 4 (
+        <code>@org.junit.Test(expected = IllegalArgumentException.class)</code>) кроме значения <code>expected</code>
+        был ещё один - это <code>long timeout</code>. Т.е. могли таймауты на ограничения во время выполнения нашего
+        теста. Естественно для юнит тестов он <b>не годится</b>, но для интеграционных, а скорее для acceptance-тестов
+        вполне себе <b>годится</b> потому что они могут занимать довольно много времени.
+    </p>
+    <p>
+        Например, наш логин можем протестировать следующим образом:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+            @Test
+            void checkLoginFunctionalityPerfomance() {
+    //            Тестируем время выполнения нашего теста
+                Optional&lt;User> result = assertTimeout(
+                        Duration.ofMillis(200L),
+                        () -> {
+                            Thread.sleep(300L);
+                            return userService.login("Dima", VADIM.getPassword());
+                        }
+                );
+
+            }
+    </pre>
+    <img src="ju-13-3.png" alt="ju-13-3" width="30%">
+    <p>
+        Видим, что тест провален потому что ожидали время выполнения не более 200мс, а выполнилось более чем за 300мс.
+    </p>
+    <p>
+        Так же есть другой ассерт, это <code>assertTimeoutPreemptively()</code>, который отличается лишь тем, что
+        выполняется наш метод в отдельном потоке. В этом случае получаем разные потоки:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+            @Test
+            void checkLoginFunctionalityPerfomance() {
+                System.out.println(Thread.currentThread().getName());
+    //            Тестируем время выполнения нашего теста
+                Optional&lt;User> result = assertTimeoutPreemptively(
+                        Duration.ofMillis(200L),
+                        () -> {
+                            System.out.println(Thread.currentThread().getName());
+                            Thread.sleep(300L);
+                            return userService.login("Dima", VADIM.getPassword());
+                        }
+                );
+    
+            }
+    </pre>
+    <img src="" alt="">
+</article>
+<article>
     <h1>JUnit 5. 12. Parameterized Tests</h1>
     <p>
         DI механизм принёс очень много полезных изменений. Т.е. на основании DI у нас появилась возможность использовать
@@ -275,6 +396,7 @@
             assertThat(maybeUser).isEqualTo(user);
         }
     </pre>
+    <img src="ju-12-4.png" alt="ju-12-4" width="30%">
 </article>
 <article>
     <h1>JUnit 5. 11. Dependency Injection. DI</h1>

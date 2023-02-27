@@ -1,197 +1,118 @@
-JUnit 5. 12. Parameterized Tests
-================================
+JUnit 5. 13. Flaky tests. Timeouts
+==================================
 
-DI механизм принёс очень много полезных изменений. Т.е. на основании DI у нас появилась возможность использовать такие вещи как **параметризованные тесты**.
+**Flaky tests** означает, что тест не стабильный. Т.е когда запускаем наши тесты во время разработки, то бывает падают тесты в рандомном месте при чем после перезапуска они могут их даже проходить при чем несколько раз. Но например на четвертый запуск вновь упали. Это может быть связано как с неправильной реализацией этих тестов. Опять же возвращаемся к порядку следований этих тестов. Это все тот же относится к тому, что мы не должны завязываться на порядок выполнения тестов в нашем коде. Более того, это часто относится к integration и даже acceptance тестам, которые задействуют например состояние нашей базы данных и могут изменять данные в ней. И не почистив за собой что повлечёт за собой негативные изменения в других тестах, которые планировали получить другой датасет в базе данных.
 
-Посмотрим что такое параметризованные тесты
--------------------------------------------
+Поэтому так как по умолчанию поля тестов не детерминированы, следовательно, могут падать различные тесты в рандомном месте. _Что обычно делают программисты:_ находят этот тест (например `loginFailIfPasswordIsNotCorrect`) и помечают аннотацией `@Disabled`. Т.е. эта аннотация позволяет не запускать наш тест в следующий раз. Обычно пишут комментарий, у этой аннотации есть всего лишь одно поле - это `value` и, например пишут:
 
-Но для этого нам необходимо подключить дополнительную зависимость:
+**UserServiceTest.java**
 
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-params</artifactId>
-            <version>5.8.0-M1</version>
-            <scope>test</scope>
-        </dependency>
+        @Test
+        @Disabled("flaky, need to see")
+        void loginFailIfPasswordIsNotCorrect() {
+            userService.add(VADIM);
+
+            Optional<User> maybeUser = userService.login(VADIM.getUsername(), "incorrect");
+
+            assertTrue(maybeUser.isEmpty());
+        }
 
 
-У нас появляется новая возможность писать тесты именно параметризованные тесты. Вместо того чтобы писать аннотацию `@Test` мы используем `@ParameterizedTest`. Далее пишем как обычный тест и например хотим протестировать нашу логин-функциональность большинством тест-кейсов. Т.е. когда у нас есть существующий юзер и несуществующий, и проблема с юзернеймом, паролем и т.д.. Т.е. этим кейсом можем закрыть сразу множество тест-кейсов. Для этого как раз таки подходят параметризованные тесты.
+![ju-13-1](src/main/resources/ju-13-1.png)
 
-И теперь, суть его в том, что мы пишем, как обычно, но в методы передаём аргументы из параметризованного теста. Т.е. берутся из DI-механизма. Мы просто просим предоставить нам поля `String username, String password`.
+**Второй вариант**, как уменьшить кол-во flaky test'ов - это сделать их **repeatable**. Т.е. есть ещё одна аннотация `@RepeatedTest()` в котором указывает сколько повторений должно быть и его название (есть по умолчанию):
 
-Теперь, чтобы подставить username & password мы тоже должны предоставить какой-то класс, либо функциональность, которая предоставит нам эти значения с помощью DI. И для этого вместе с `@ParameterizedTest` всегда используется ещё одна аннотация: `@ArgumentsSource()`. Эту аннотацию можно ставить как над аннотацией, так и методом. Внутри себя он содержит `value()`, который представляет класс-провайдер. Его единственная задача: предоставить поток аргументов в наш метод. Он занимается тем, что находит наши аргументы (в нашем случае username и password) и это все представляется в виде аргументов. А аргумент - это всего лишь интерфейс, который возвращает массив объектов. Т.е. если у нас к примеру два параметра в нашем методе, то это массив из двух элементов.
+**UserServiceTest.java**
 
-Есть уже множество готовых провайдеров. Мы можем ими воспользоваться чтобы не писать свои провайдеры:
-
-            @ParameterizedTest
-    //        Для кастомных провайдеров
-    //        @ArgumentsSource()
-    //        Реализовывает NullArgumentsProvider
-            @NullSource
-    //        Реализовывает EmptyArgumentsProvider
-            @EmptySource
-    //        Реализовывает ValueArgumentsProvider
-            @ValueSource
-            void loginParameterizedTest(String username, String password) {
-                userService.add(VADIM, PETR);
-                Optional<User> maybeUser = userService.login(username, password);
+    //        @Test
+            @RepeatedTest(value = 5, name = RepeatedTest.LONG\_DISPLAY\_NAME)
+            void loginFailIfUserDoesNotExist() {
+                userService.add(VADIM);
+    
+                Optional<User> maybeUser = userService.login("Dima", VADIM.getPassword());
+    
+                assertTrue(maybeUser.isEmpty());
             }
 
 
-Не сложно догадаться, что наши провайдеры подставляют значения в параметры. Единственное ограничение, что параметр должен быть один. В нашем случае username и password - это два параметра и следовательно, что для `@NullSource`, что и для `@EmptySource`, `@ValueSource` есть ограничения в один единственный параметр. Поэтому и используют их довольно редко. Но если у нас одна красивая функция с одним параметром, то это отличный вариант использовать `@NullSource`,`@EmptySource`, `@ValueSource`.
+![ju-13-2](src/main/resources/ju-13-2.png)
 
-Уберём один аргумент и запустим код в дебаге:
+Таким образом мы можем улучшить наши тесты, которые поддержаны к тому, чтобы поддерживать наши flacky. Т.е. например на 3 и 4 итерации часто падает тест, хотя предыдущие два проходят. Таким образом уменьшаем кол-во таких flacky-тестов. Более того, можем использовать DI механизм и передать `RepetitionInfo`. По сути, это информация про кол-во итераций, про текущую итерации:
 
-            @ParameterizedTest
-    //        Для кастомных провайдеров
-    //        @ArgumentsSource()
-    //        Реализовывает NullArgumentsProvider
-            @NullSource
-    //        Реализовывает EmptyArgumentsProvider
-            @EmptySource
-    //        @NullAndEmptySource
-    //        Реализовывает ValueArgumentsProvider
-    //        @ValueSource
-            void loginParameterizedTest(String username) {
-                userService.add(VADIM, PETR);
-                Optional<User> maybeUser = userService.login(username, null);
+**UserServiceTest.java**
+
+    //        @Test
+            @RepeatedTest(value = 5, name = RepeatedTest.LONG\_DISPLAY\_NAME)
+            void loginFailIfUserDoesNotExist(RepetitionInfo repetitionInfo) {
+                userService.add(VADIM);
+    
+                Optional<User> maybeUser = userService.login("Dima", VADIM.getPassword());
+    
+                assertTrue(maybeUser.isEmpty());
             }
 
 
-![ju-12-1](src/main/resources/ju-12-1.png)
+Timeout'ы
+---------
 
-Видим пустое значение в username потому что со String он работает так же как с массивами и коллекциями. `@ValueSource` работает так же только с одним параметром. Например, в данном случае если у нас только один параметр, то я могу предоставить `strings`:
+На одном из предыдущих занятий мы видили, что в старом JUnit 4 ( `@org.junit.Test(expected = IllegalArgumentException.class)`) кроме значения `expected` был ещё один - это `long timeout`. Т.е. могли таймауты на ограничения во время выполнения нашего теста. Естественно для юнит тестов он **не годится**, но для интеграционных, а скорее для acceptance-тестов вполне себе **годится** потому что они могут занимать довольно много времени.
+
+Например, наш логин можем протестировать следующим образом:
 
 **UserServiceTest.java**
 
-            @ParameterizedTest
-    //        Для кастомных провайдеров
-    //        @ArgumentsSource()
-    //        Реализовывает NullArgumentsProvider
-            @NullSource
-    //        Реализовывает EmptyArgumentsProvider
-            @EmptySource
-    //        @NullAndEmptySource
-    //        Реализовывает ValueArgumentsProvider
-            @ValueSource(strings = {
-                    "Vadim", "Petr"
-            })
-            void loginParameterizedTest(String username) {
-                userService.add(VADIM, PETR);
-                Optional<User> maybeUser = userService.login(username, null);
+            @Test
+            void checkLoginFunctionalityPerfomance() {
+    //            Тестируем время выполнения нашего теста
+                Optional<User> result = assertTimeout(
+                        Duration.ofMillis(200L),
+                        () -> {
+                            Thread.sleep(300L);
+                            return userService.login("Dima", VADIM.getPassword());
+                        }
+                );
+
             }
 
 
-И если запустим дебаг, то в username сначала придёт Vadim, а потом Petr. Есть ещё один тип source'ов - это `@EnumSource`: используется редко - только тогда, когда у нас есть Enum вместо каких-то примитивных типов либо String.
+![ju-13-3](src/main/resources/ju-13-3.png)
 
-Что нельзя сказать про `@MethodSource` - он используется чаще всего. Мы должны предоставить ему название нашего метода, который примет все эти стримы аргументов. Т.е. я должен передать метод и создать его. Он должен быть статическим и возвращать `Stream<Arguments>`. Есть конечно ограничения, что статические методы нельзя использовать во внутренних классах, следовательно, мы должны его вынести в наш внешний класс. Теперь у нас нет доступа к `getArgumentsForLoginTest` методу потому что он уже находится не во внутреннем классе, а в каком-то другом. Но опять же, у нас есть возможность указывать любой статический метод в `@MethodSource`, не только внутри класса, где пишем метод. Для этого пишем путь к методу. Пусть состоит из полного пути класса, где состоит метод.
+Видим, что тест провален потому что ожидали время выполнения не более 200мс, а выполнилось более чем за 300мс.
+
+Так же есть другой ассерт, это `assertTimeoutPreemptively()`, который отличается лишь тем, что выполняется наш метод в отдельном потоке. В этом случае получаем разные потоки:
 
 **UserServiceTest.java**
 
-            @ParameterizedTest
-    //        Для кастомных провайдеров
-    //        @ArgumentsSource()
-    //        Реализовывает NullArgumentsProvider
-    //        @NullSource
-    //        Реализовывает EmptyArgumentsProvider
-    //        @EmptySource
-    //        @NullAndEmptySource
-    //        Реализовывает ValueArgumentsProvider
-    //        @ValueSource(strings = {
-    //                "Vadim", "Petr"
-    //        })
-    //        @EnumSource
-            @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
-            void loginParameterizedTest(String username, String password, Optional<User> user) {
-                userService.add(VADIM, PETR);
-
-                Optional<User> maybeUser = userService.login(username, password);
-
-                assertThat(maybeUser).isEqualTo(user);
+            @Test
+            void checkLoginFunctionalityPerfomance() {
+                System.out.println(Thread.currentThread().getName());
+    //            Тестируем время выполнения нашего теста
+                Optional<User> result = assertTimeoutPreemptively(
+                        Duration.ofMillis(200L),
+                        () -> {
+                            System.out.println(Thread.currentThread().getName());
+                            Thread.sleep(300L);
+                            return userService.login("Dima", VADIM.getPassword());
+                        }
+                );
+    
             }
-        }
-
-        static Stream<Arguments> getArgumentsForLoginTest() {
-            return Stream.of(
-                    Arguments.of("Vadim", "123", Optional.of(VADIM)),
-                    Arguments.of("Petr", "123", Optional.of(PETR)),
-    //                    Существующий пользователь, но неправильный пароль
-                    Arguments.of("Petr", "dummy", Optional.empty()),
-    //                    Пользователя не существует, а пароль существует
-                    Arguments.of("dummy", "123", Optional.empty())
-            );
-        }
 
 
-Таким образом мы можем сразу четыре кейса покрыть тестами. Запускаем наш тест и проверяем:
+![ju-13-4](src/main/resources/ju-13-4.png)
 
-![ju-12-2](src/main/resources/ju-12-2.png)
+Сначала видим поток _main_, а затем поток _junit-timeout-thread-1_. Т.е. запущен в другом потоке.
 
-Мы можем использовать обычный CSV формат и указать просто путь к нему. Для этого в тестовой директории создаём resources и там создаём файл **login-test-data.csv**. Т.е. именно расширение csv. Суть этого формата в том, что мы на каждой строке пишем какие-то значения, которые разделены любым делиметром.
+Чаще всего используется `assertTimeout()` потому что множество функциональностей, например в спринге связанной с транзакциями завязано на такие переменные как `ThreadLocal`, который использует объект текущего потока в качестве ключа для определения транзакций. Поэтому чаще прибегают к обычным `assertTimeout()`.
+
+Есть так же отдельная аннотация `@Timeout()`, в котором в качестве параметра принимаем значение и время в мс (`long value`). В нашем случае ожидаем 200мс, то делаем следующее:
+
+Мы так же можем указывать его как над методами, так и над классами. Поставим его над внутренним классом `@Timeout(value = 200, unit = TimeUnit.MILLISECONDS)`:
 
 **UserServiceTest.java**
 
-        @ParameterizedTest
-        @CsvFileSource(resources = "/login-test-data.csv", delimiter = ',', numLinesToSkip = 1)
-        void loginParameterizedTest(String username, String password) {
-            userService.add(VADIM, PETR);
-
-            Optional<User> maybeUser = userService.login(username, password);
-
-            assertThat(maybeUser).isEqualTo(null);
-        }
-
-
-Если запустим этот код в дебаге, то в наши параметры передадутся все необходимые данные. Так же чтобы не создавать csv файл мы можем использовать аннотацию `@CsvSource`:
-
-**UserServiceTest.java**
-
-        @ParameterizedTest
-        @CsvSource({
-                "Vadim,123",
-                "Petr,123"
-        })
-        void loginParameterizedTest(String username, String password) {
-            userService.add(VADIM, PETR);
-
-            Optional<User> maybeUser = userService.login(username, password);
-
-            assertThat(maybeUser).isEqualTo(null);
-        }
-
-
-Так же можем именовать тесты при помощи `@ParameterizedTest(name = "")`. Внутри него есть разные _placeholder_'ы:
-
-        @ParameterizedTest(name = "{arguments} test")
-        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
-        void loginParameterizedTest(String username, String password, Optional<User> user) {
-            userService.add(VADIM, PETR);
-
-            Optional<User> maybeUser = userService.login(username, password);
-
-            assertThat(maybeUser).isEqualTo(user);
-        }
-
-
-Запустим все тесты и посмотрим на результат:
-
-![ju-12-3](src/main/resources/ju-12-3.png)
-
-Если хотим переименовать название теста, то используем обычный `@DisplayName("")`:
-
-**UserServiceTest.java**
-
-        @ParameterizedTest(name = "{arguments} test")
-        @MethodSource("com.kainv.junit.service.UserServiceTest#getArgumentsForLoginTest")
-        @DisplayName("login param test")
-        void loginParameterizedTest(String username, String password, Optional<User> user) {
-            userService.add(VADIM, PETR);
-
-            Optional<User> maybeUser = userService.login(username, password);
-
-            assertThat(maybeUser).isEqualTo(user);
-        }
-
-
-![ju-12-4](src/main/resources/ju-12-4.png)
+    @Nested
+    @DisplayName("test user login functionality")
+    @Tag("login")
+    @Timeout(value = 200, unit = TimeUnit.MILLISECONDS)
+    class LoginTest {
