@@ -1,7 +1,11 @@
 package com.kainv.junit.service;
 
 import com.kainv.dto.User;
-import com.kainv.junit.paramresolver.UserServiceParamResolver;
+import com.kainv.junit.TestBase;
+import com.kainv.junit.extension.ConditionalExtension;
+import com.kainv.junit.extension.PostProcessingExtension;
+import com.kainv.junit.extension.ThrowableExtension;
+import com.kainv.junit.extension.UserServiceParamResolver;
 import com.kainv.service.UserService;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.collection.IsEmptyCollection;
@@ -11,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -26,9 +31,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 @ExtendWith({
-        UserServiceParamResolver.class
+        UserServiceParamResolver.class,
+        PostProcessingExtension.class,
+        ConditionalExtension.class,
+        ThrowableExtension.class
+//        GlobalExtension.class
 })
-public class UserServiceTest {
+public class UserServiceTest extends TestBase {
 
     private UserService userService;
     private static final User VADIM = User.of(1, "Vadim", "123");
@@ -52,7 +61,11 @@ public class UserServiceTest {
     @Test
     @Order(1)
     @DisplayName("users will be empty if no user added")
-    void usersEmptyIfNoUserAdded() {
+    void usersEmptyIfNoUserAdded() throws IOException {
+        if (true) {
+            throw new RuntimeException();
+        }
+
         System.out.println("Test 1: " + this);
 
         List<User> users = userService.getAll();

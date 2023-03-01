@@ -1,76 +1,265 @@
-JUnit 5. 14. Extension Model. Теория
-====================================
+JUnit 5. 15. Extension Model. Практика
+======================================
 
-Что такое extension model в JUnit 5?
+Начнём с модели Test life cycle callbacks
+-----------------------------------------
+
+Является самой сложной. Callback'и - это всего лишь интерфейсы реализовав которые мы можем внедриться в любой из этапов жизненного цикла теста. А именно, если посмотрим более детально на эти callback'и, то получается, у нас есть шесть разных callback'ов:
+
+![ju-15-1](src/main/resources/ju-15-1.png)
+
+В callback'ах реализуем один единственный метод и он будет вызываться у нас если мы его переопределим и добавим через аннотацию `@ExtendWith({})` нашего тестового класса.
+
+Создадим свой extension, только сначала папку _paramresolver_ переименуем в _extension_ и создадим какой-нибудь `GlobalExtension`. Для того чтобы внедриться в один из шагов жизненного цикла теста, мы всего лишь должны переопределить соответствующие интерфейсы:
+
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.BeforeAllCallback;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class GlobalExtension implements BeforeAllCallback {
+        @Override
+        public void beforeAll(ExtensionContext extensionContext) throws Exception {
+
+        }
+    }
+
+
+Получаем объект типа `ExtensionContext`, следственно мы можем получить всё что захотим. В нашем случае всего лишь пометим, что это _before all callback_:
+
+**GlobalExtension.java**
+
+    @Override
+    public void beforeAll(ExtensionContext extensionContext) throws Exception {
+        System.out.println("before all callback");
+    }
+
+
+Более того, можем продолжить реализовывать интерфейсы и одним Extension'ом нашим можем реализовать несколько таких интерфейсов и внедриться сразу же одним классом на любые из жизненных циклов тестов. Более того, можем реализовать совершенно любые Extension'ы которые только захотим:
+
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
+    import org.junit.jupiter.api.extension.BeforeAllCallback;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class GlobalExtension implements BeforeAllCallback, AfterTestExecutionCallback {
+        @Override
+        public void beforeAll(ExtensionContext extensionContext) throws Exception {
+            System.out.println("before all callback");
+        }
+
+        @Override
+        public void afterTestExecution(ExtensionContext extensionContext) throws Exception {
+            System.out.println("after test execution");
+        }
+    }
+
+
+Теперь, для того чтобы подключить наш Extension, нам нужно в `@ExtendWith({})` подключить наш класс-Execution:
+
+    @ExtendWith({
+            UserServiceParamResolver.class,
+            GlobalExtension.class
+    })
+    public class UserServiceTest {
+
+
+Если выполним запуск тестов, то увидим всё то, что мы реализовали в `GlobalExtension`.
+
+В основном подобные Extension'ы мы используем уже существующими. Свои пишутся довольно редко, только когда хотим предоставить какой-то функционал или общий базовый класс для всех наших тестов. Ведь мы можем создать свой тестовый базовый класс, например в директории _junit_ создаётся какой-то `abstract class TestBase`, который в себе ничего не содержит, но может реализовать какие-то Extension'ы:
+
+    package com.kainv.junit;
+
+    import com.kainv.junit.extension.GlobalExtension;
+    import org.junit.jupiter.api.extension.ExtendWith;
+
+    @ExtendWith({
+            GlobalExtension.class
+    })
+    public abstract class TestBase {
+    }
+
+
+Естественно, если будем наследовать наш `TestBase`, то все Extension'ы так же наследуются нашими потомками:
+
+**UserServiceTest.java**
+
+    @ExtendWith({
+            UserServiceParamResolver.class,
+    //        GlobalExtension.class
+    })
+    public class UserServiceTest extends TestBase {
+
+
+Test instance post-processing
+-----------------------------
+
+Создадим ещё один Extension, который будет `PostProcessingExtension`:
+
+`Object o` - это мы получаем объект нашего класса. Поменяели на `Object testInstance` для лучшей читабельности.
+
+Именно этот Extension **используется Spring'ом** для внедрения зависимостей. Потому что как раз таки в этом callback'e мы приходим в точку, когда только-только создался объект нашего тестового класса и в нем есть поля от которых хотим зависеть. Следовательно, можем спокойно взять `testInstance`, взять у него все поля и далее пройтись по каждому из них и если поле (`declaredField`) имеет аннотацию `@Getter` (**плохой случай** потому что геттер аннотация недоступна в runtime), то внедряем в это поле какие-то значения:
+
+    package com.kainv.junit.extension;
+
+    import com.kainv.service.UserService;
+    import lombok.Getter;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+    import org.junit.jupiter.api.extension.TestInstancePostProcessor;
+
+    import java.lang.reflect.Field;
+
+    public class PostProcessingExtension implements TestInstancePostProcessor {
+        @Override
+        public void postProcessTestInstance(Object testInstance, ExtensionContext extensionContext) throws Exception {
+            System.out.println("post processing extension");
+            Field\[\] declaredFields = testInstance.getClass().getDeclaredFields();
+            for (Field declaredField : declaredFields) {
+                if (declaredField.isAnnotationPresent(Getter.class)) {
+                    declaredField.set(testInstance, new UserService());
+                }
+            }
+        }
+    }
+
+
+
+Таким образом и поступает Spring. Далее в нашем `UserServiceTest` в аннотации `@ExtendWith({})` внедряем наш Extension:
+
+**UserServiceTest.java**
+
+    @ExtendWith({
+            UserServiceParamResolver.class,
+            PostProcessingExtension.class
+    //        GlobalExtension.class
+    })
+    public class UserServiceTest extends TestBase {
+
+
+Запускаем и видим в консоли, что post processing для нашего `UserServiceTest` класса выдался один раз. Далее, он выдался только для внутреннего класса потому что наш `UserServiceTest` в `@TestInstance(Lifecycle.PER_CLASS)`. Следственно, один раз создался `UserService` для всех наших методов внутри нашего `UserServiceTest`. Далее, создаётся каждый раз новый инстанс для нашего внутреннего класса.
+
+![ju-15-2](src/main/resources/ju-15-2.png)
+
+Conditional test execution
+--------------------------
+
+Так же создаём свой `ConditionalExtension` и реализуем интерфейс `ExecutionCondition`, а так же его один единственный метод:
+
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.ConditionEvaluationResult;
+    import org.junit.jupiter.api.extension.ExecutionCondition;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class ConditionalExtension implements ExecutionCondition {
+        @Override
+        public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext extensionContext) {
+            return null;
+        }
+    }
+
+
+Теперь у нас есть доступ к `ExtensionContext` и мы можем в этом методе определять, стоит ли вызывать наш тест или нет. Например:
+
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.ConditionEvaluationResult;
+    import org.junit.jupiter.api.extension.ExecutionCondition;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class ConditionalExtension implements ExecutionCondition {
+        @Override
+        public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext extensionContext) {
+    //        Если передали property "skip" и не равна null, то запускаем отключаем тест. В противном случае - выполняем.
+            return System.getProperty("skip") != null
+                    ? ConditionEvaluationResult.disabled("test is skipped")
+                    : ConditionEvaluationResult.enabled("enabled by default");
+        }
+    }
+
+
+Если внедрим `ConditionalExtension` в наш `UserServiceTest`, и в **VM options** передадим флаг `-Dskip`, то все наши тесты не запустятся в классе, в котором внедрили зависимость.
+
+**UserServiceTest.java**
+
+    @ExtendWith({
+            UserServiceParamResolver.class,
+            PostProcessingExtension.class,
+            ConditionalExtension.class
+    //        GlobalExtension.class
+    })
+    public class UserServiceTest extends TestBase {
+
+
+![ju-15-3](src/main/resources/ju-15-3.png)  
+![ju-15-4](src/main/resources/ju-15-4.png)
+
+Parameter resolution - уже проходили
 ------------------------------------
 
-Extension Model в JUnit 5 - это новая функциональность, которая позволяет расширять функциональность фреймворка JUnit 5. Он предоставляет возможность программистам настраивать поведение JUnit 5 во время выполнения тестов, добавляя новые функциональные возможности, такие как логирование, запуск тестов в параллельном режиме, подключение к базам данных и многое другое.
+Exception handling
+------------------
 
-Расширения могут быть написаны как отдельные классы, реализующие интерфейс Extension, так и использовать предоставляемые фреймворком аннотации, такие как `@BeforeEachCallback` или `@AfterAllCallback`. Расширения могут быть добавлены как к классам тестов, так и к тестовым методам, что дает большую гибкость в управлении поведением тестов.
+Т.е. когда обрабатываем какие-то exception'ы которые у нас получились из наших тестовых методов. Напишем класс `ThrowableException` и реализуем соответствующий интерфейс:
 
-Extension Model позволяет программистам создавать свои собственные расширения или использовать существующие, доступные из различных источников, таких как библиотеки, плагины или фреймворки. Расширения могут быть объявлены в файле META-INF/services/org.junit.jupiter.api.extension.Extension, который будет автоматически обнаружен и загружен при запуске тестов.
+    package com.kainv.junit.extension;
 
-Т.е., Extension Model это некий прокси-паттерн?
------------------------------------------------
+    import org.junit.jupiter.api.extension.ExtensionContext;
+    import org.junit.jupiter.api.extension.TestExecutionExceptionHandler;
 
-Extension Model в JUnit 5 можно рассматривать как реализацию паттерна расширяемости. Это позволяет настраивать и расширять поведение фреймворка JUnit 5, не изменяя его исходный код.
+    import java.io.EOFException;
 
-Внутри Extension Model используется механизм вызова методов обратного вызова (callback), который позволяет расширениям реагировать на определенные события, связанные с выполнением тестов. Например, при запуске теста может быть вызван метод обратного вызова "beforeEach", который позволяет расширению выполнить какую-то дополнительную подготовку перед запуском теста.
+    public class ThrowableExtension implements TestExecutionExceptionHandler {
+        @Override
+        public void handleTestExecutionException(ExtensionContext extensionContext, Throwable throwable) throws Throwable {
+    //        Если наш throwable является IOException, то пробрасываем его дальше
+            if (throwable instanceof IOException) {
+                throw throwable;
+            }
+        }
+    }
 
-Таким образом, можно сказать, что Extension Model - это не конкретный паттерн, а набор функциональности, реализующий паттерны расширяемости и обратных вызовов для настройки поведения фреймворка JUnit 5.
 
-Расскажи про паттерн расширяемости
-----------------------------------
+В `UserServiceTest`, в методе `usersEmptyIfNoUserAdded` вызовем исключение:
 
-Паттерн расширяемости (Extensibility Pattern) - это паттерн проектирования, который позволяет расширять функциональность программного продукта без необходимости изменения его исходного кода.
+**UserServiceTest.java**
 
-Паттерн расширяемости широко используется в различных программных продуктах и фреймворках. Он позволяет добавлять новые возможности и функции в систему без необходимости изменения ее основной функциональности. Это делает систему более гибкой и удобной для использования, так как пользователи могут настраивать ее под свои потребности и задачи.
+    @Test
+    @Order(1)
+    @DisplayName("users will be empty if no user added")
+    void usersEmptyIfNoUserAdded() throws IOException {
+        if (true) {
+            throw new IOException();
+        }
 
-Для реализации паттерна расширяемости используются различные механизмы, такие как плагины, расширения, модули и т.д. Основная идея заключается в том, чтобы разбить систему на модули, которые могут быть расширены или заменены при необходимости.
+        System.out.println("Test 1: " + this);
 
-Примером фреймворка, который использует паттерн расширяемости, является Spring Framework. В Spring существует множество расширений (Extension Points), которые позволяют настраивать и расширять поведение фреймворка. Это позволяет разработчикам создавать более гибкие и масштабируемые приложения, которые могут легко адаптироваться к изменяющимся требованиям бизнеса.
+        List<User> users = userService.getAll();
 
-В JUnit 5 паттерн расширяемости реализуется через Extension Model, который позволяет расширять функциональность фреймворка и настраивать поведение тестов во время их выполнения. Расширения могут быть написаны для решения различных задач, таких как логирование, запуск тестов в параллельном режиме, подключение к базам данных и т.д.
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+        assertTrue(users.isEmpty(), () -> "User list should be empty");
+    }
 
-Аннотация @ExtendWith({})
--------------------------
 
-Мы её уже использовали ранее на DI механизме, когда создавали свои параметры-resolver'ы и сейчас более подробно поговорим про это.
+![ju-15-5](src/main/resources/ju-15-5.png)  
+**UserServiceTest.java**
 
-![ju-14-1](src/main/resources/ju-14-1.png)
+    @Test
+    @Order(1)
+    @DisplayName("users will be empty if no user added")
+    void usersEmptyIfNoUserAdded() throws IOException {
+        if (true) {
+            throw new RuntimeException();
+        }
 
-Extension Model представляет собой пять основных типов:
+        System.out.println("Test 1: " + this);
 
-1.  **Test life cycle callbacks** - т.е. мы можем внедриться в любую часть жизненного цикла наших тестов и добавить какой-то функционал в любой из частей нашего жизненного цикла. Поэтому, мы благодаря специальным callback'ам (_это всего лишь интерфейсы_) мы можем внедриться в любой из шагов жизненного цикла теста.
-2.  **Test instance post-processing \*** - такая возможность позволяет нам что-то подкрутить после создания объекта нашего тестового класса. Т.е. мы знаем, что по умолчанию каждый раз создаётся новый объект класса `UserServiceTest` и вызывается собственно наш тест. Так вот именно этот callback позволяет нам добавить какую-ту свою функциональность сразу же после создания этого объекта. Как раз таки спринг использует такую возможность, для того чтобы внедрить свои зависимости в этот объект.
-3.  **Conditional test execution** - такая возможность extension model'и позволяет нам какие-то условия на выполнения либо невыполнения тестов. Например, можем какие-то тесты отключить если environment variables будет qa или что-то вроде этого. Т.е. у нас есть доступ практически ко всему и мы можем на основании этих данных принимать решение о выполнении или невыполнении каких-то тестов.
-4.  **Parameter resolution** - проходили на теме по DI. Т.е. можем без проблем создать свои параметры-resolution'ы, для того чтобы внедрять свои зависимости в любой из методов жизненного цикла наших тестов.
-5.  **Exception handling** - т.е. можем отлавливать исключения, которые пробрасываются в наших тестах и так же с ними что-то подкрутить, что-то сделать.
+        List<User> users = userService.getAll();
 
-Вспомним как делать parameter resolution
-----------------------------------------
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+        assertTrue(users.isEmpty(), () -> "User list should be empty");
+    }
 
-Т.е. мы добавляем какой-то функционал к нашему тесту через `@ExtendWith`. Т.е. добавляем какое-то поведение и в этот раз уже можем передавать массив таких `Extension'ов`. Главная задача - это всего лишь реализовать интерфейс `Extension`.
 
-### Что это за интерфейс
-
-Это всего-лишь интерфейс маркер по типу serializable, который говорит лишь о том, что мы можем использовать объекты типа `Extension` как модель для расширения наших классов.
-
-Поэтому создали `UserServiceParamResolver`, который имплементил `ParameterResolver`, который в свою очередь является нашим `Extension`'ом. Нам надо было реализовать всего лишь два простых метода и которые автоматически вызывались у нас во время выполнения наших тестов.
-
-У нас появляется очень интересный момент - это `ExtensionContext`. Это по сути полная информация по нашему `ExtensionContext` выполнению. И здесь мы можем получить довольно много информации.
-
-Возвращаясь к parameter resolution который реализовали
-------------------------------------------------------
-
-Мы так же использовали наш `ExtensionContext` к примеру, для того чтобы получить тестовый метод название которого мы определили: какое хранилище использовать (`getStore`). `Store` - это что-то вроде хранилища для наших тестов которые мы можем в последующем использовать как ассоциативный массив где по ключу можем получить значение.
-
-Если перейдём в `Extension` и посмотрим какие есть по умолчанию, то приходим к пяти основным Extension Model'ям:
-
-![ju-14-2](src/main/resources/ju-14-2.png)
-
-Первое - это callback'и нашего жизненного цикла. `AfterAllCallback`, `AfterEachCalbback` и так на каждую из наших фаз. Далее основные интерфейсы - это `ExecutionCondition`, т.е. на выполнение наших условий. `ParameterResolver` уже прошли, это для наших параметров. Далее, для исключений это `TestExecutionExceptionHandler`. Для того чтобы подключить инстанс тестовый - `testInstancePostProcessor`.
-
-Таким образом, у нас уже есть готовые интерфейсы для каждого из пяти вариантов Extension Model'и и мы просто можем создать свою реализацию этих интерфейсов и подключить её с помощью аннотации `@ExtendWith({})`.
-
-**В основном** фреймворки или какие-то библиотеки чаще прибегают к Extension Model'и, к написанию своих собственных callback'ов. В обычной ситуации, обычные программисты просто используют существующие подключая те или иные библиотеки или фреймворки такие, как Mockito и Spring.
+![ju-15-6](src/main/resources/ju-15-6.png)

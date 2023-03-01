@@ -40,6 +40,303 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 15. Extension Model. Практика</h1>
+    <h2>Начнём с модели Test life cycle callbacks</h2>
+    <p>
+        Является самой сложной. Callback'и - это всего лишь интерфейсы реализовав которые мы можем внедриться в любой
+        из этапов жизненного цикла теста. А именно, если посмотрим более детально на эти callback'и, то получается, у
+        нас есть шесть разных callback'ов:
+    </p>
+    <img src="ju-15-1.png" alt="ju-15-1" width="60%">
+    <p>
+        В callback'ах реализуем один единственный метод и он будет вызываться у нас если мы его переопределим и добавим
+        через аннотацию <code>@ExtendWith({})</code> нашего тестового класса.
+    </p>
+    <p>
+        Создадим свой extension, только сначала папку <i>paramresolver</i> переименуем в <i>extension</i> и создадим
+        какой-нибудь <code>GlobalExtension</code>. Для того чтобы внедриться в один из шагов жизненного цикла теста,
+        мы всего лишь должны переопределить соответствующие интерфейсы:
+    </p>
+    <pre>
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.BeforeAllCallback;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class GlobalExtension implements BeforeAllCallback {
+        @Override
+        public void beforeAll(ExtensionContext extensionContext) throws Exception {
+
+        }
+    }
+    </pre>
+    <p>
+        Получаем объект типа <code>ExtensionContext</code>, следственно мы можем получить всё что захотим. В нашем
+        случае всего лишь пометим, что это <i>before all callback</i>:
+    </p>
+    <b>GlobalExtension.java</b>
+    <pre>
+    @Override
+    public void beforeAll(ExtensionContext extensionContext) throws Exception {
+        System.out.println("before all callback");
+    }
+    </pre>
+    <p>
+        Более того, можем продолжить реализовывать интерфейсы и одним Extension'ом нашим можем реализовать несколько
+        таких интерфейсов и внедриться сразу же одним классом на любые из жизненных циклов тестов. Более того, можем
+        реализовать совершенно любые Extension'ы которые только захотим:
+    </p>
+    <pre>
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
+    import org.junit.jupiter.api.extension.BeforeAllCallback;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class GlobalExtension implements BeforeAllCallback, AfterTestExecutionCallback {
+        @Override
+        public void beforeAll(ExtensionContext extensionContext) throws Exception {
+            System.out.println("before all callback");
+        }
+
+        @Override
+        public void afterTestExecution(ExtensionContext extensionContext) throws Exception {
+            System.out.println("after test execution");
+        }
+    }
+    </pre>
+    <p>
+        Теперь, для того чтобы подключить наш Extension, нам нужно в <code>@ExtendWith({})</code> подключить наш
+        класс-Execution:
+    </p>
+    <pre>
+    @ExtendWith({
+            UserServiceParamResolver.class,
+            GlobalExtension.class
+    })
+    public class UserServiceTest {
+    </pre>
+    <p>
+        Если выполним запуск тестов, то увидим всё то, что мы реализовали в <code>GlobalExtension</code>.
+    </p>
+    <p>
+        В основном подобные Extension'ы мы используем уже существующими. Свои пишутся довольно редко, только когда хотим
+        предоставить какой-то функционал или общий базовый класс для всех наших тестов. Ведь мы можем создать свой
+        тестовый базовый класс, например в директории <i>junit</i> создаётся какой-то <code>abstract class
+        TestBase</code>,
+        который в себе ничего не содержит, но может реализовать какие-то Extension'ы:
+    </p>
+    <pre>
+    package com.kainv.junit;
+
+    import com.kainv.junit.extension.GlobalExtension;
+    import org.junit.jupiter.api.extension.ExtendWith;
+
+    @ExtendWith({
+            GlobalExtension.class
+    })
+    public abstract class TestBase {
+    }
+    </pre>
+    <p>
+        Естественно, если будем наследовать наш <code>TestBase</code>, то все Extension'ы так же наследуются нашими
+        потомками:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @ExtendWith({
+            UserServiceParamResolver.class,
+    //        GlobalExtension.class
+    })
+    public class UserServiceTest extends TestBase {
+    </pre>
+    <h2>Test instance post-processing</h2>
+    <p>
+        Создадим ещё один Extension, который будет <code>PostProcessingExtension</code>:
+    </p>
+    <p>
+        <code>Object o</code> - это мы получаем объект нашего класса. Поменяели на <code>Object testInstance</code>
+        для лучшей читабельности.
+    </p>
+    <p>
+        Именно этот Extension <b>используется Spring'ом</b> для внедрения зависимостей. Потому что как раз таки
+        в этом callback'e мы приходим в точку, когда только-только создался объект нашего тестового класса и в нем есть
+        поля от которых хотим зависеть. Следовательно, можем спокойно взять <code>testInstance</code>, взять у него
+        все поля и далее пройтись по каждому из них и если поле (<code>declaredField</code>) имеет аннотацию
+        <code>@Getter</code> (<b>плохой случай</b> потому что геттер аннотация недоступна в runtime), то внедряем
+        в это поле какие-то значения:
+    </p>
+    <pre>
+    package com.kainv.junit.extension;
+
+    import com.kainv.service.UserService;
+    import lombok.Getter;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+    import org.junit.jupiter.api.extension.TestInstancePostProcessor;
+
+    import java.lang.reflect.Field;
+
+    public class PostProcessingExtension implements TestInstancePostProcessor {
+        @Override
+        public void postProcessTestInstance(Object testInstance, ExtensionContext extensionContext) throws Exception {
+            System.out.println("post processing extension");
+            Field[] declaredFields = testInstance.getClass().getDeclaredFields();
+            for (Field declaredField : declaredFields) {
+                if (declaredField.isAnnotationPresent(Getter.class)) {
+                    declaredField.set(testInstance, new UserService());
+                }
+            }
+        }
+    }
+
+    </pre>
+    <p>
+        Таким образом и поступает Spring. Далее в нашем <code>UserServiceTest</code> в аннотации
+        <code>@ExtendWith({})</code> внедряем наш Extension:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @ExtendWith({
+            UserServiceParamResolver.class,
+            PostProcessingExtension.class
+    //        GlobalExtension.class
+    })
+    public class UserServiceTest extends TestBase {
+    </pre>
+    <p>
+        Запускаем и видим в консоли, что post processing для нашего <code>UserServiceTest</code> класса выдался один
+        раз.
+        Далее, он выдался только для внутреннего класса потому что наш <code>UserServiceTest</code> в
+        <code>@TestInstance(Lifecycle.PER_CLASS)</code>. Следственно, один раз создался <code>UserService</code> для
+        всех наших методов внутри нашего <code>UserServiceTest</code>. Далее, создаётся каждый раз новый инстанс для
+        нашего внутреннего класса.
+    </p>
+    <img src="ju-15-2.png" alt="ju-15-2" width="60%">
+    <h2>Conditional test execution</h2>
+    <p>
+        Так же создаём свой <code>ConditionalExtension</code> и реализуем интерфейс <code>ExecutionCondition</code>,
+        а так же его один единственный метод:
+    </p>
+    <pre>
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.ConditionEvaluationResult;
+    import org.junit.jupiter.api.extension.ExecutionCondition;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class ConditionalExtension implements ExecutionCondition {
+        @Override
+        public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext extensionContext) {
+            return null;
+        }
+    }
+    </pre>
+    <p>
+        Теперь у нас есть доступ к <code>ExtensionContext</code> и мы можем в этом методе определять, стоит ли вызывать
+        наш тест или нет. Например:
+    </p>
+    <pre>
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.ConditionEvaluationResult;
+    import org.junit.jupiter.api.extension.ExecutionCondition;
+    import org.junit.jupiter.api.extension.ExtensionContext;
+
+    public class ConditionalExtension implements ExecutionCondition {
+        @Override
+        public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext extensionContext) {
+    //        Если передали property "skip" и не равна null, то запускаем отключаем тест. В противном случае - выполняем.
+            return System.getProperty("skip") != null
+                    ? ConditionEvaluationResult.disabled("test is skipped")
+                    : ConditionEvaluationResult.enabled("enabled by default");
+        }
+    }
+    </pre>
+    <p>
+        Если внедрим <code>ConditionalExtension</code> в наш <code>UserServiceTest</code>, и в <b>VM options</b>
+        передадим флаг <code>-Dskip</code>, то все наши тесты не запустятся в классе, в котором внедрили зависимость.
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @ExtendWith({
+            UserServiceParamResolver.class,
+            PostProcessingExtension.class,
+            ConditionalExtension.class
+    //        GlobalExtension.class
+    })
+    public class UserServiceTest extends TestBase {
+    </pre>
+    <img src="ju-15-3.png" alt="ju-15-3" width="60%">
+    <br>
+    <img src="ju-15-4.png" alt="ju-15-4" width="60%">
+    <h2>Parameter resolution - уже проходили</h2>
+    <h2>Exception handling</h2>
+    <p>
+        Т.е. когда обрабатываем какие-то exception'ы которые у нас получились из наших тестовых методов. Напишем
+        класс <code>ThrowableException</code> и реализуем соответствующий интерфейс:
+    </p>
+    <pre>
+    package com.kainv.junit.extension;
+
+    import org.junit.jupiter.api.extension.ExtensionContext;
+    import org.junit.jupiter.api.extension.TestExecutionExceptionHandler;
+
+    import java.io.EOFException;
+
+    public class ThrowableExtension implements TestExecutionExceptionHandler {
+        @Override
+        public void handleTestExecutionException(ExtensionContext extensionContext, Throwable throwable) throws Throwable {
+    //        Если наш throwable является IOException, то пробрасываем его дальше
+            if (throwable instanceof IOException) {
+                throw throwable;
+            }
+        }
+    }
+    </pre>
+    <p>
+        В <code>UserServiceTest</code>, в методе <code>usersEmptyIfNoUserAdded</code> вызовем исключение:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    @Order(1)
+    @DisplayName("users will be empty if no user added")
+    void usersEmptyIfNoUserAdded() throws IOException {
+        if (true) {
+            throw new IOException();
+        }
+
+        System.out.println("Test 1: " + this);
+
+        List&lt;User> users = userService.getAll();
+
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+        assertTrue(users.isEmpty(), () -> "User list should be empty");
+    }
+    </pre>
+    <img src="ju-15-5.png" alt="ju-15-5" width="60%">
+    <br>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    @Order(1)
+    @DisplayName("users will be empty if no user added")
+    void usersEmptyIfNoUserAdded() throws IOException {
+        if (true) {
+            throw new RuntimeException();
+        }
+
+        System.out.println("Test 1: " + this);
+
+        List&lt;User> users = userService.getAll();
+
+        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
+        assertTrue(users.isEmpty(), () -> "User list should be empty");
+    }
+    </pre>
+    <img src="ju-15-6.png" alt="ju-15-6" width="60%">
+</article>
+<article>
     <h1>JUnit 5. 14. Extension Model. Теория</h1>
     <h2>Что такое extension model в JUnit 5?</h2>
     <p>
@@ -168,7 +465,8 @@
     <img src="ju-14-2.png" alt="ju-14-2" width="40%">
     <p>
         Первое - это callback'и нашего жизненного цикла. <code>AfterAllCallback</code>, <code>AfterEachCalbback</code>
-        и так на каждую из наших фаз. Далее основные интерфейсы - это <code>ExecutionCondition</code>, т.е. на выполнение
+        и так на каждую из наших фаз. Далее основные интерфейсы - это <code>ExecutionCondition</code>, т.е. на
+        выполнение
         наших условий. <code>ParameterResolver</code> уже прошли, это для наших параметров. Далее, для исключений это
         <code>TestExecutionExceptionHandler</code>. Для того чтобы подключить инстанс тестовый -
         <code>testInstancePostProcessor</code>.

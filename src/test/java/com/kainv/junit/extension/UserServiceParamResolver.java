@@ -1,4 +1,4 @@
-package com.kainv.junit.paramresolver;
+package com.kainv.junit.extension;
 
 import com.kainv.service.UserService;
 import org.junit.jupiter.api.extension.ExtensionContext;
