@@ -1,265 +1,53 @@
-JUnit 5. 15. Extension Model. Практика
-======================================
+Junit 5. 16. Mockito. Test Doubles
+==================================
 
-Начнём с модели Test life cycle callbacks
------------------------------------------
+На предыдущих занятиях мы писали наши тесты на основании `UserService`. Т.е. писали именно unit-тесты проверяя лишь какой-то метод в нашем `UserService`. Но мы пошли очень простым путём, мы всего лишь создали список наших пользователей и у нашего `UserService` не было зависимости на другие сервисы либо, к примеру, `UserDao` который бы обращался в базу данных и получал бы значения. В таком случае у нас уже был бы не юнит тест, а интеграционный тест. Потому что тестируя к примеру метод `add()` в `UserService` - мы бы обращались ещё к `UserDao` который выполнял бы метод `insert()` в базу данных.
 
-Является самой сложной. Callback'и - это всего лишь интерфейсы реализовав которые мы можем внедриться в любой из этапов жизненного цикла теста. А именно, если посмотрим более детально на эти callback'и, то получается, у нас есть шесть разных callback'ов:
+На практике такие варианты встречаются чаще всего. Поэтому у нас происходит следующее:
 
-![ju-15-1](src/main/resources/ju-15-1.png)
+![ju-16-1](src/main/resources/ju-16-1.png)
 
-В callback'ах реализуем один единственный метод и он будет вызываться у нас если мы его переопределим и добавим через аннотацию `@ExtendWith({})` нашего тестового класса.
+Наш `UserService` будет обращаться к `UserDao` или другим сервисам и следовательно, для того чтобы написать наши юнит тесты, а не интеграционные тесты - мы должны каким-то образом не взаимодействовать с реальными объектами других сервисов и Dao потому что хотим протестировать только функционал нашего `UserService`. Именно здесь на помощь приходит фреймворк **Mockito**, который позволяет нам делать что-то вроде заглушек на зависимые классы. Т.е. на другие сервисы и классы чтобы не вызывать реальные эти объекты.
 
-Создадим свой extension, только сначала папку _paramresolver_ переименуем в _extension_ и создадим какой-нибудь `GlobalExtension`. Для того чтобы внедриться в один из шагов жизненного цикла теста, мы всего лишь должны переопределить соответствующие интерфейсы:
+Для того чтобы лучше понять Mockito, нам необходимо разобраться с подставными объектами, что они из себя представляют. Следственно, у нас есть специальное определение, которое называется **Test Doubles**, которое можно переводить как дублёры. Т.е. какой-то второй объект, который пришел нам на замену настоящего.
 
-    package com.kainv.junit.extension;
+![ju-16-2](src/main/resources/ju-16-2.png)
 
-    import org.junit.jupiter.api.extension.BeforeAllCallback;
-    import org.junit.jupiter.api.extension.ExtensionContext;
+1.  **Dummy** - это объекты, которые не используются во время тестирования. Нужны только для заполнения параметров методов.
 
-    public class GlobalExtension implements BeforeAllCallback {
-        @Override
-        public void beforeAll(ExtensionContext extensionContext) throws Exception {
+    Например, когда тестируем наш метод `login()`, нас может не интересовать какие мы username ввели, какие пароли, чтобы пройти аутентификацию. Следственно, нам всё равно что это за объекты будут. Мы их создаём только для того чтобы мы могли вызвать наш метод `login()` как это делали в наших тестах.
 
-        }
-    }
+    ![ju-16-3](src/main/resources/ju-16-3.png)
 
+    Как в этом коде - нас не интересовал какой username, мы передали выдуманный объект. Mockito предоставляет более удобный функционал для этого.
 
-Получаем объект типа `ExtensionContext`, следственно мы можем получить всё что захотим. В нашем случае всего лишь пометим, что это _before all callback_:
+2.  **Fake** - объекты с работающим функционалом, но не подходящим для production. Например, запуск in-memory базы данных для тестирования DAO слоя.
 
-**GlobalExtension.java**
+    Т.е. у нас есть реальная база данных, но для тестирования мы не хотим поднимать реальную, мы можем понять фейковую БД и на ней проверять тесты.
 
-    @Override
-    public void beforeAll(ExtensionContext extensionContext) throws Exception {
-        System.out.println("before all callback");
-    }
+    В нашем случае мы создавали Вадимов и Петь для того чтобы к примеру добавить нашего пользователя в систему (`userService.add(VADIM);`).
 
+3.  **Stub** - объекты, которые используются **mocks** и **spies** для ответа (Answer) на вызовы методов во время тестов.
 
-Более того, можем продолжить реализовывать интерфейсы и одним Extension'ом нашим можем реализовать несколько таких интерфейсов и внедриться сразу же одним классом на любые из жизненных циклов тестов. Более того, можем реализовать совершенно любые Extension'ы которые только захотим:
+    Это всего лишь объект, который должен вернуться если мы у наших других объектов (mocks & spies) вызовем какой-то метод с определенными параметрами.
 
-    package com.kainv.junit.extension;
+4.  **Mock** - запрограммированные объекты, возвращающие ожидаемый результат (**stubs**) на вызов определенных методов.
 
-    import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
-    import org.junit.jupiter.api.extension.BeforeAllCallback;
-    import org.junit.jupiter.api.extension.ExtensionContext;
+    Т.е. по сути у нас есть к примеру `UserService`, но мы подставляем какой-то mock-объект `UserService`'а и мы можем его использовать везде где его использовали `UserService`, но как он будет функционировать. Т.е. как будет реагировать на вызов метода логина, добавления и прочее мы будем сами программировать используя какие-то параметры на вход наших методов и stub'ы, для того чтобы вернуть какие-то значения из наших методов.
 
-    public class GlobalExtension implements BeforeAllCallback, AfterTestExecutionCallback {
-        @Override
-        public void beforeAll(ExtensionContext extensionContext) throws Exception {
-            System.out.println("before all callback");
-        }
+5.  **Spy** - proxy для реальных объектов, которые ведут себя точно также, но могут быть запрограммированы как **mocks**.
 
-        @Override
-        public void afterTestExecution(ExtensionContext extensionContext) throws Exception {
-            System.out.println("after test execution");
-        }
-    }
+    Т.е. по сути создаём **spy** на основании нашего реального `UserService`'а и до тех пор, пока мы не начали его программировать, как-то настраивать его поведения как это делали в mock'ах (т.е. на вызов определенного метода с определенными параметрами) - мы должны вернуть **stubs** не вызывая настоящий метод.
 
 
-Теперь, для того чтобы подключить наш Extension, нам нужно в `@ExtendWith({})` подключить наш класс-Execution:
+Подключим библиотеку Mockito
+----------------------------
 
-    @ExtendWith({
-            UserServiceParamResolver.class,
-            GlobalExtension.class
-    })
-    public class UserServiceTest {
+**pom.xml**
 
-
-Если выполним запуск тестов, то увидим всё то, что мы реализовали в `GlobalExtension`.
-
-В основном подобные Extension'ы мы используем уже существующими. Свои пишутся довольно редко, только когда хотим предоставить какой-то функционал или общий базовый класс для всех наших тестов. Ведь мы можем создать свой тестовый базовый класс, например в директории _junit_ создаётся какой-то `abstract class TestBase`, который в себе ничего не содержит, но может реализовать какие-то Extension'ы:
-
-    package com.kainv.junit;
-
-    import com.kainv.junit.extension.GlobalExtension;
-    import org.junit.jupiter.api.extension.ExtendWith;
-
-    @ExtendWith({
-            GlobalExtension.class
-    })
-    public abstract class TestBase {
-    }
-
-
-Естественно, если будем наследовать наш `TestBase`, то все Extension'ы так же наследуются нашими потомками:
-
-**UserServiceTest.java**
-
-    @ExtendWith({
-            UserServiceParamResolver.class,
-    //        GlobalExtension.class
-    })
-    public class UserServiceTest extends TestBase {
-
-
-Test instance post-processing
------------------------------
-
-Создадим ещё один Extension, который будет `PostProcessingExtension`:
-
-`Object o` - это мы получаем объект нашего класса. Поменяели на `Object testInstance` для лучшей читабельности.
-
-Именно этот Extension **используется Spring'ом** для внедрения зависимостей. Потому что как раз таки в этом callback'e мы приходим в точку, когда только-только создался объект нашего тестового класса и в нем есть поля от которых хотим зависеть. Следовательно, можем спокойно взять `testInstance`, взять у него все поля и далее пройтись по каждому из них и если поле (`declaredField`) имеет аннотацию `@Getter` (**плохой случай** потому что геттер аннотация недоступна в runtime), то внедряем в это поле какие-то значения:
-
-    package com.kainv.junit.extension;
-
-    import com.kainv.service.UserService;
-    import lombok.Getter;
-    import org.junit.jupiter.api.extension.ExtensionContext;
-    import org.junit.jupiter.api.extension.TestInstancePostProcessor;
-
-    import java.lang.reflect.Field;
-
-    public class PostProcessingExtension implements TestInstancePostProcessor {
-        @Override
-        public void postProcessTestInstance(Object testInstance, ExtensionContext extensionContext) throws Exception {
-            System.out.println("post processing extension");
-            Field\[\] declaredFields = testInstance.getClass().getDeclaredFields();
-            for (Field declaredField : declaredFields) {
-                if (declaredField.isAnnotationPresent(Getter.class)) {
-                    declaredField.set(testInstance, new UserService());
-                }
-            }
-        }
-    }
-
-
-
-Таким образом и поступает Spring. Далее в нашем `UserServiceTest` в аннотации `@ExtendWith({})` внедряем наш Extension:
-
-**UserServiceTest.java**
-
-    @ExtendWith({
-            UserServiceParamResolver.class,
-            PostProcessingExtension.class
-    //        GlobalExtension.class
-    })
-    public class UserServiceTest extends TestBase {
-
-
-Запускаем и видим в консоли, что post processing для нашего `UserServiceTest` класса выдался один раз. Далее, он выдался только для внутреннего класса потому что наш `UserServiceTest` в `@TestInstance(Lifecycle.PER_CLASS)`. Следственно, один раз создался `UserService` для всех наших методов внутри нашего `UserServiceTest`. Далее, создаётся каждый раз новый инстанс для нашего внутреннего класса.
-
-![ju-15-2](src/main/resources/ju-15-2.png)
-
-Conditional test execution
---------------------------
-
-Так же создаём свой `ConditionalExtension` и реализуем интерфейс `ExecutionCondition`, а так же его один единственный метод:
-
-    package com.kainv.junit.extension;
-
-    import org.junit.jupiter.api.extension.ConditionEvaluationResult;
-    import org.junit.jupiter.api.extension.ExecutionCondition;
-    import org.junit.jupiter.api.extension.ExtensionContext;
-
-    public class ConditionalExtension implements ExecutionCondition {
-        @Override
-        public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext extensionContext) {
-            return null;
-        }
-    }
-
-
-Теперь у нас есть доступ к `ExtensionContext` и мы можем в этом методе определять, стоит ли вызывать наш тест или нет. Например:
-
-    package com.kainv.junit.extension;
-
-    import org.junit.jupiter.api.extension.ConditionEvaluationResult;
-    import org.junit.jupiter.api.extension.ExecutionCondition;
-    import org.junit.jupiter.api.extension.ExtensionContext;
-
-    public class ConditionalExtension implements ExecutionCondition {
-        @Override
-        public ConditionEvaluationResult evaluateExecutionCondition(ExtensionContext extensionContext) {
-    //        Если передали property "skip" и не равна null, то запускаем отключаем тест. В противном случае - выполняем.
-            return System.getProperty("skip") != null
-                    ? ConditionEvaluationResult.disabled("test is skipped")
-                    : ConditionEvaluationResult.enabled("enabled by default");
-        }
-    }
-
-
-Если внедрим `ConditionalExtension` в наш `UserServiceTest`, и в **VM options** передадим флаг `-Dskip`, то все наши тесты не запустятся в классе, в котором внедрили зависимость.
-
-**UserServiceTest.java**
-
-    @ExtendWith({
-            UserServiceParamResolver.class,
-            PostProcessingExtension.class,
-            ConditionalExtension.class
-    //        GlobalExtension.class
-    })
-    public class UserServiceTest extends TestBase {
-
-
-![ju-15-3](src/main/resources/ju-15-3.png)  
-![ju-15-4](src/main/resources/ju-15-4.png)
-
-Parameter resolution - уже проходили
-------------------------------------
-
-Exception handling
-------------------
-
-Т.е. когда обрабатываем какие-то exception'ы которые у нас получились из наших тестовых методов. Напишем класс `ThrowableException` и реализуем соответствующий интерфейс:
-
-    package com.kainv.junit.extension;
-
-    import org.junit.jupiter.api.extension.ExtensionContext;
-    import org.junit.jupiter.api.extension.TestExecutionExceptionHandler;
-
-    import java.io.EOFException;
-
-    public class ThrowableExtension implements TestExecutionExceptionHandler {
-        @Override
-        public void handleTestExecutionException(ExtensionContext extensionContext, Throwable throwable) throws Throwable {
-    //        Если наш throwable является IOException, то пробрасываем его дальше
-            if (throwable instanceof IOException) {
-                throw throwable;
-            }
-        }
-    }
-
-
-В `UserServiceTest`, в методе `usersEmptyIfNoUserAdded` вызовем исключение:
-
-**UserServiceTest.java**
-
-    @Test
-    @Order(1)
-    @DisplayName("users will be empty if no user added")
-    void usersEmptyIfNoUserAdded() throws IOException {
-        if (true) {
-            throw new IOException();
-        }
-
-        System.out.println("Test 1: " + this);
-
-        List<User> users = userService.getAll();
-
-        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
-        assertTrue(users.isEmpty(), () -> "User list should be empty");
-    }
-
-
-![ju-15-5](src/main/resources/ju-15-5.png)  
-**UserServiceTest.java**
-
-    @Test
-    @Order(1)
-    @DisplayName("users will be empty if no user added")
-    void usersEmptyIfNoUserAdded() throws IOException {
-        if (true) {
-            throw new RuntimeException();
-        }
-
-        System.out.println("Test 1: " + this);
-
-        List<User> users = userService.getAll();
-
-        MatcherAssert.assertThat(users, IsEmptyCollection.empty());
-        assertTrue(users.isEmpty(), () -> "User list should be empty");
-    }
-
-
-![ju-15-6](src/main/resources/ju-15-6.png)
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>3.9.0</version>
+            <scope>test</scope>
+        </dependency>
