@@ -40,6 +40,505 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 17. Mockito. Mock</h1>
+    <h2>Mock</h2>
+    <p>
+        Начнём с часто используемого - Mock. Во время использования наших моков мы будем сталкиваться и со stub'ами,
+        и с fake'ами, и с dummy.
+    </p>
+    <p>
+        Для начала нам нужно сделать <code>UserService</code> более реалистичным, т.е. добавить зависимость на
+        <code>UserDao</code>. Создадим класс <code>UserDao</code> от которого будет зависеть <code>UserService</code>:
+    </p>
+    <pre>
+    package com.kainv.dao;
+
+    import lombok.SneakyThrows;
+
+    import java.sql.Connection;
+    import java.sql.DriverManager;
+
+    public class UserDao {
+        @SneakyThrows
+        public boolean delete(Integer userId) {
+            try (Connection connection = DriverManager.getConnection("url", "username", "password")) {
+                return true;
+            }
+        }
+    }
+    </pre>
+    <p>
+        Возвращаемся в <code>UserService</code>, переопределяем конструктор и добавляем метод по удалению нашего
+        пользователя т.е. в <code>UserService</code> приходит метод для удаления пользователя и он просто перенаправляет
+        его на <code>UserDao</code> поэтому пишем:
+    </p>
+    <pre>
+    package com.kainv.service;
+
+    import com.kainv.dao.UserDao;
+    import com.kainv.dto.User;
+
+    import java.util.*;
+
+    import static java.util.function.Function.identity;
+    import static java.util.stream.Collectors.toMap;
+
+    public class UserService {
+
+        private final List&lt;User> users = new ArrayList&lt;>();
+        private final UserDao userDao;
+
+        public UserService(UserDao userDao) {
+            this.userDao = userDao;
+        }
+
+        public boolean delete(Integer userId) {
+            return userDao.delete(userId);
+        }
+
+        public List&lt;User> getAll() {
+            return users;
+        }
+
+        public void add(User... users) {
+            this.users.addAll(Arrays.asList(users));
+        }
+
+        public Optional&lt;User> login(String username, String password) {
+            if (username == null || password == null) {
+                throw new IllegalArgumentException("username or password is null");
+            }
+            return users.stream()
+                    .filter(user -> user.getUsername().equals(username))
+                    .filter(user -> user.getPassword().equals(password))
+                    .findFirst();
+        }
+
+        public Map&lt;Integer, User> getAllConvertedById() {
+            return users.stream().collect(toMap(User::getId, identity()));
+        }
+    }
+    </pre>
+    <p>
+        Теперь видим, что если напишем тест на метод <code>delete()</code>, то это будет уже <b>интеграционный</b>
+        тест. Потому что мы проверяем не только логику метода нашего <code>delete()</code> у <code>UserService</code>,
+        но и логику работы нашего метода <code>delete()</code> у <code>UserDao</code>. Т.е. два совершенно разных
+        класса, следственно это интеграционный тест как <code>UserService</code> дружит с <code>UserDao</code>.
+    </p>
+    <h3>Напишем тест на метод delete() в UserService</h3>
+    <p>
+        Переходим в <code>UserServiceTest</code> и пишем тест. Предварительно нужно закоментировать
+        <code>ThrowableExtension.class</code> в <code>@ExtendWith({})</code> потому что он ловит все наши исключения
+        и говорит что тесты прошли.
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    void shouldDeleteExistedUser() {
+        userService.add(VADIM);
+
+        boolean deleteResult = userService.delete(VADIM.getId());
+
+        assertThat(deleteResult).isTrue();
+    }
+    </pre>
+    <p>
+        Если запустим, то тесты упадут потому что зайдя в <code>UserDao</code> и вызвав метод <code>delete()</code>
+        мы не смогли подключиться к БД. Следственно, это уже интеграционный тест. Следственно, мы должны использовать
+        <b>Mockito</b>.
+    </p>
+    <p>
+        Для этого нам нужно проинициализировать наш <code>UserService</code>. Не будем использовать наш DI-механизм.
+        Во-первых добавляем <code>UserDao</code> как поле в нашем <code>UserServiceTest</code> классе:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        private UserDao userDao;
+    </pre>
+    <p>
+        И теперь его тоже надо проинициализоровать и передать в <code>UserService</code> в методе <code>prepare()</code>.
+        Мы не можем напрямую передать <code>this.userDao = new UserDao();</code>. Для этого нам нужен какой-то
+        mock-объект который мы в дальнейшем будем программировать. Мы не должны реальные методы вызывать у
+        <code>UserDao</code> поэтому используем метод <code>Mockito.mock()</code>, который создаёт прокси-объект
+        с таким же классом который мы передали в него в качестве параметра:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @BeforeEach
+    void prepare() {
+        System.out.println("Before each: " + this);
+        this.userDao = Mockito.mock(UserDao.class);
+        this.userService = new UserService(userDao);
+    }
+    </pre>
+    <p>
+        Теперь, если запустим тест, то реальный метод не вызовется. Но тесты и не выполнятся.
+    </p>
+    <img src="ju-17-1.png" alt="ju-17-1" width="60%">
+    <p>
+        Сначала разберёмся почему вернулся false, а во вторых, что это за Mock объект.
+    </p>
+    <h3>Создадим mock-объект вручную</h3>
+    <pre>
+    package com.kainv.junit.dao;
+
+    import com.kainv.dao.UserDao;
+
+    public class UserDaoMock extends UserDao {
+        @Override
+        public boolean delete(Integer userId) {
+            return false;
+        }
+    }
+    </pre>
+    <p>
+        Мы можем использовать его вместо реального <code>UserDao</code> потому что он наследуется от него и
+        переопределяет
+        все его методы. Возвращаются, как правило, какие-то дефолтные значения. Для примитивных типов это обычные
+        дефолтные значения (для boolean - false, для целочисленных - 0 и т.д.), для объектов сложных это null, для
+        коллекций это обычные пустые коллекции.
+    </p>
+    <p>
+        Т.к. <code>UserDaoMock</code> наследуется от <code>UserDao</code>, следственно мы можем его использовать везде
+        где используется <code>UserDao</code>. Но тут опять видим ограничения потому что мы не можем сделать
+        <code>final class UserDao</code> потому что тогда не сможем наследоваться от него.
+    </p>
+    <p>
+        Мы опять приходим к двум вариантам создания mock-ов: это динамическое прокси и наследование как это делает
+        Mockito и Spring. Наш класс <b>не должен быть</b> <code>final</code> иначе будет исключение.
+    </p>
+    <h3>Возвращаемся в UserServiceTest</h3>
+    <p>
+        Мы добавили <code>UserDao</code>, но теперь хотим его как-то запрограммировать чтобы при удалении именно в
+        <code>userService.delete(VADIM.getId());</code>, именно наш <code>userDao</code> должен вернуть true или
+        false. Мы должны научить его делать потому что по умолчанию он возвращает дефолтное значение false.
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @Test
+    void shouldDeleteExistedUser() {
+        userService.add(VADIM);
+
+        boolean deleteResult = userService.delete(VADIM.getId());
+
+        assertThat(deleteResult).isTrue();
+    }
+    </pre>
+    <p>
+        Для этого опять же воспользуемся Mockito и пишем:
+    </p>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+            boolean deleteResult = userService.delete(VADIM.getId());
+
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <p>
+        Мы создали <b>Stub</b> для ответа на вызов метода mock'ом. Т.е. говорим: верни true, когда у userDao вызовем
+        метод delete и передадим туда VADIM.getId(). В данном случае нас <b>интересует</b> этот id'шник следственно это
+        фейковый идшник, но если он нас <b>не интересует</b>, то мы на любой переданный ид в метод <code>delete()</code>
+        в <code>UserDao</code> хотим вернуть true. Тогда мы используем <b>dummy</b>-объект. Т.е. у мокито есть куча
+        методов типа <code>any()</code>:
+    </p>
+    <b>UserServiceTest</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+            boolean deleteResult = userService.delete(VADIM.getId());
+
+            assertThat(deleteResult).isTrue();
+        }
+
+    </pre>
+    <p>
+        Запустим и проверим что получится:
+    </p>
+    <img src="ju-17-2.png" alt="ju-17-2" width="60%">
+    <p>
+        В этот раз вернул уже true.
+    </p>
+    <h2>Как это работает</h2>
+    <p>
+        Как мы научили <code>UserDao</code> возвращать результат true, когда передаём какой-то определенный идшник?
+    </p>
+    <p>
+        Всё очень просто: напишем что-то вроде ассоциативного массива:
+    </p>
+    <pre>
+    package com.kainv.junit.dao;
+
+    import com.kainv.dao.UserDao;
+
+    import java.util.HashMap;
+    import java.util.Map;
+
+    public class UserDaoMock extends UserDao {
+
+        // Ключ Integer потому что аргумент типа Integer и значение Boolean потому что метод возвращает boolean
+        private Map&lt;Integer, Boolean> answers = new HashMap&lt;>();
+        @Override
+        public boolean delete(Integer userId) {
+            return answers.getOrDefault(userId, false);
+        }
+    }
+
+    </pre>
+    <p>
+        Теперь, каждый раз когда мы обучаем наш <code>UserDaoMock</code> - мы просто у нашего <code>answers</code>
+        берём результат по ключу. Теперь, каждый раз когда обучаем наш <code>UserDaoMock</code> - мы просто берём
+        у нашего <code>answers</code> результат по ключу иначе возвращаем false. Для того чтобы обучить этот
+        <code>answers</code> - мы используем утилитный класс мокито и добавляем туда значения. Например, по id 1
+        верни true и т.д..
+    </p>
+    <p>
+        Этот метод не универсальный потому что у нас могут быть другие типы данных и несколько параметров. Следственно,
+        это все уже решено за нас и у нас есть специальный класс как <code>Answer</code> (<i>stubbing</i> - пакет
+        в мокито который занимается созданием <b>stub</b>'ов). <code>Answer1</code>, <code>Answer2</code> и т.д.
+        говорит о кол-ве аргументов в методе.
+    </p>
+    <pre>
+    package com.kainv.junit.dao;
+
+    import com.kainv.dao.UserDao;
+    import org.mockito.stubbing.Answer1;
+
+    import java.util.HashMap;
+    import java.util.Map;
+
+    public class UserDaoMock extends UserDao {
+
+        // Ключ Integer потому что аргумент типа Integer и значение Boolean потому что метод возвращает boolean
+        private Map&lt;Integer, Boolean> answers = new HashMap&lt;>();
+        private Answer1&lt;Integer, Boolean> answer1;
+        @Override
+        public boolean delete(Integer userId) {
+            return answers.getOrDefault(userId, false);
+        }
+    }
+    </pre>
+    <h2>Возвращаемся в UserServiceTest</h2>
+    <p>
+        Если передадим в <code>userService.delete(2)</code>, то тест упадёт потому что вернёт единичку:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+            boolean deleteResult = userService.delete(2);
+
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <img src="ju-17-3.png" alt="ju-17-3" width="60%">
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+    //        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+            Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+            boolean deleteResult = userService.delete(2);
+
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <img src="ju-17-4.png" alt="ju-17-4" width="60%">
+    <p>
+        В этот раз тест пройден потому что нас не интересует идентификатор, мы в любом случае возвращаем true. Таким
+        образом можем программировать <code>Mockito.doReturn()</code> и возвращать любое значение которое только
+        захотим.
+    </p>
+    <h3>Второй вариант программирования</h3>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+    //        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+            Mockito.when(userDao.delete(VADIM.getId())).thenReturn(true);
+
+            boolean deleteResult = userService.delete(2);
+
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <p>
+        Этот вариант тоже работает, но не для всех случаев. Первый вариант является предпочтительнее потому что он
+        является универсальным. Второй вариант позволяет последовательно возвращать значения если будем вызывать у
+        одного и того же mock'а несколько раз метод <code>delete()</code> чтобы он возвращал сначала true, а потом
+        false:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+    //        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+            Mockito.when(userDao.delete(VADIM.getId()))
+                    .thenReturn(true)
+                    .thenReturn(false);
+
+            boolean deleteResult = userService.delete(VADIM.getId());
+            System.out.println(userService.delete(VADIM.getId()));
+            System.out.println(userService.delete(VADIM.getId()));
+
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+
+</article>
+<article>
+    <h1>Junit 5. 16. Mockito. Test Doubles</h1>
+    <p>
+        На предыдущих занятиях мы писали наши тесты на основании <code>UserService</code>. Т.е. писали именно unit-тесты
+        проверяя лишь какой-то метод в нашем <code>UserService</code>. Но мы пошли очень простым путём, мы всего лишь
+        создали список наших пользователей и у нашего <code>UserService</code> не было зависимости на другие сервисы
+        либо, к примеру, <code>UserDao</code> который бы обращался в базу данных и получал бы значения. В таком случае
+        у нас уже был бы не юнит тест, а интеграционный тест. Потому что тестируя к примеру метод <code>add()</code>
+        в <code>UserService</code> - мы бы обращались ещё к <code>UserDao</code> который выполнял бы метод
+        <code>insert()</code> в базу данных.
+    </p>
+    <p>
+        На практике такие варианты встречаются чаще всего. Поэтому у нас происходит следующее:
+    </p>
+    <img src="ju-16-1.png" alt="ju-16-1" width="40%">
+    <p>
+        Наш <code>UserService</code> будет обращаться к <code>UserDao</code> или другим сервисам и следовательно,
+        для того чтобы написать наши юнит тесты, а не интеграционные тесты - мы должны каким-то образом не
+        взаимодействовать с реальными объектами других сервисов и Dao потому что хотим протестировать только функционал
+        нашего <code>UserService</code>. Именно здесь на помощь приходит фреймворк <b>Mockito</b>, который позволяет
+        нам делать что-то вроде заглушек на зависимые классы. Т.е. на другие сервисы и классы чтобы не вызывать
+        реальные эти объекты.
+    </p>
+    <p>
+        Для того чтобы лучше понять Mockito, нам необходимо разобраться с подставными объектами, что они из себя
+        представляют. Следственно, у нас есть специальное определение, которое называется <b>Test Doubles</b>,
+        которое можно переводить как дублёры. Т.е. какой-то второй объект, который пришел нам на замену настоящего.
+    </p>
+    <img src="ju-16-2.png" alt="ju-16-2" width="30%">
+    <ol>
+        <li>
+            <p>
+                <b>Dummy</b> - это объекты, которые не используются во время тестирования. Нужны только для заполнения
+                параметров методов.
+            </p>
+            <p>
+                Например, когда тестируем наш метод <code>login()</code>, нас может не интересовать какие мы username
+                ввели, какие пароли, чтобы пройти аутентификацию. Следственно, нам всё равно что это за объекты будут.
+                Мы их создаём только для того чтобы мы могли вызвать наш метод <code>login()</code> как это делали
+                в наших тестах.
+            </p>
+            <img src="ju-16-3.png" alt="ju-16-3" width="60%">
+            <p>
+                Как в этом коде - нас не интересовал какой username, мы передали выдуманный объект. Mockito
+                предоставляет
+                более удобный функционал для этого.
+            </p>
+        </li>
+        <li>
+            <p>
+                <b>Fake</b> - объекты с работающим функционалом, но не подходящим для production. Например, запуск
+                in-memory базы данных для тестирования DAO слоя.
+            </p>
+            <p>
+                Т.е. у нас есть реальная база данных, но для тестирования мы не хотим поднимать реальную, мы можем
+                понять фейковую БД и на ней проверять тесты.
+            </p>
+            <p>
+                В нашем случае мы создавали Вадимов и Петь для того чтобы к примеру добавить нашего пользователя
+                в систему (<code>userService.add(VADIM);</code>).
+            </p>
+        </li>
+        <li>
+            <p>
+                <b>Stub</b> - объекты, которые используются <b>mocks</b> и <b>spies</b> для ответа (Answer) на вызовы
+                методов во время тестов.
+            </p>
+            <p>
+                Это всего лишь объект, который должен вернуться если мы у наших других объектов (mocks & spies) вызовем
+                какой-то метод с определенными параметрами.
+            </p>
+        </li>
+        <li>
+            <p>
+                <b>Mock</b> - запрограммированные объекты, возвращающие ожидаемый результат (<b>stubs</b>) на вызов
+                определенных методов.
+            </p>
+            <p>
+                Т.е. по сути у нас есть к примеру <code>UserService</code>, но мы подставляем какой-то mock-объект
+                <code>UserService</code>'а и мы можем его использовать везде где его использовали
+                <code>UserService</code>,
+                но как он будет функционировать. Т.е. как будет реагировать на вызов метода логина, добавления и прочее
+                мы будем сами программировать используя какие-то параметры на вход наших методов и stub'ы, для того
+                чтобы вернуть какие-то значения из наших методов.
+            </p>
+        </li>
+        <li>
+            <p>
+                <b>Spy</b> - proxy для реальных объектов, которые ведут себя точно также, но могут быть
+                запрограммированы
+                как <b>mocks</b>.
+            </p>
+            <p>
+                Т.е. по сути создаём <b>spy</b> на основании нашего реального <code>UserService</code>'а и до тех пор,
+                пока мы не начали его программировать, как-то настраивать его поведения как это делали в mock'ах (т.е.
+                на вызов определенного метода с определенными параметрами) - мы должны вернуть <b>stubs</b> не
+                вызывая настоящий метод.
+            </p>
+        </li>
+    </ol>
+    <h2>Подключим библиотеку Mockito</h2>
+    <b>pom.xml</b>
+    <pre>
+        &lt;dependency>
+            &lt;groupId>org.mockito&lt;/groupId>
+            &lt;artifactId>mockito-core&lt;/artifactId>
+            &lt;version>3.9.0&lt;/version>
+            &lt;scope>test&lt;/scope>
+        &lt;/dependency>
+    </pre>
+</article>
+<article>
     <h1>JUnit 5. 15. Extension Model. Практика</h1>
     <h2>Начнём с модели Test life cycle callbacks</h2>
     <p>
@@ -334,7 +833,7 @@
         assertTrue(users.isEmpty(), () -> "User list should be empty");
     }
     </pre>
-
+    <img src="ju-15-6.png" alt="ju-15-6" width="60%">
 </article>
 <article>
     <h1>JUnit 5. 14. Extension Model. Теория</h1>

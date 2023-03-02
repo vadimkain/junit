@@ -1,5 +1,6 @@
 package com.kainv.junit.service;
 
+import com.kainv.dao.UserDao;
 import com.kainv.dto.User;
 import com.kainv.junit.TestBase;
 import com.kainv.junit.extension.ConditionalExtension;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -34,14 +36,16 @@ import static org.junit.jupiter.api.Assertions.*;
         UserServiceParamResolver.class,
         PostProcessingExtension.class,
         ConditionalExtension.class,
-        ThrowableExtension.class
+//        ThrowableExtension.class
 //        GlobalExtension.class
 })
 public class UserServiceTest extends TestBase {
 
     private UserService userService;
+    private UserDao userDao;
     private static final User VADIM = User.of(1, "Vadim", "123");
     private static final User PETR = User.of(2, "Petr", "123");
+
 
     UserServiceTest(TestInfo testInfo) {
         System.out.println();
@@ -53,9 +57,31 @@ public class UserServiceTest extends TestBase {
     }
 
     @BeforeEach
-    void prepare(UserService userService) {
+    void prepare() {
         System.out.println("Before each: " + this);
-        this.userService = userService;
+        this.userDao = Mockito.mock(UserDao.class);
+        this.userService = new UserService(userDao);
+    }
+
+    @Test
+    void shouldDeleteExistedUser() {
+        userService.add(VADIM);
+
+//        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+//        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+//        Если никакой ид не интересует
+//        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+        Mockito.when(userDao.delete(VADIM.getId()))
+                .thenReturn(true)
+                .thenReturn(false);
+
+        boolean deleteResult = userService.delete(VADIM.getId());
+        System.out.println(userService.delete(VADIM.getId()));
+        System.out.println(userService.delete(VADIM.getId()));
+
+        assertThat(deleteResult).isTrue();
     }
 
     @Test

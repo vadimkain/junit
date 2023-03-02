@@ -1,5 +1,6 @@
 package com.kainv.junit.extension;
 
+import com.kainv.dao.UserDao;
 import com.kainv.service.UserService;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.ExtensionContext.Namespace;
@@ -19,6 +20,6 @@ public class UserServiceParamResolver implements ParameterResolver {
 //        Для методов которые требуют UserService мы возвращаем всегда один и тот же store:
         ExtensionContext.Store store = extensionContext.getStore(Namespace.create(extensionContext.getTestMethod()));
 //        Получаем по ключу значение
-        return store.getOrComputeIfAbsent(UserService.class, it -> new UserService());
+        return store.getOrComputeIfAbsent(UserService.class, it -> new UserService(new UserDao()));
     }
 }
