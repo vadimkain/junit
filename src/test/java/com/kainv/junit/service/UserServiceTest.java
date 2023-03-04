@@ -15,6 +15,8 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -59,7 +61,7 @@ public class UserServiceTest extends TestBase {
     @BeforeEach
     void prepare() {
         System.out.println("Before each: " + this);
-        this.userDao = Mockito.mock(UserDao.class);
+        this.userDao = Mockito.spy(new UserDao());
         this.userService = new UserService(userDao);
     }
 
@@ -68,18 +70,24 @@ public class UserServiceTest extends TestBase {
         userService.add(VADIM);
 
 //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
-//        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
 
 //        Если никакой ид не интересует
 //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
 
-        Mockito.when(userDao.delete(VADIM.getId()))
-                .thenReturn(true)
-                .thenReturn(false);
+//        Mockito.when(userDao.delete(VADIM.getId()))
+//                .thenReturn(true)
+//                .thenReturn(false);
 
         boolean deleteResult = userService.delete(VADIM.getId());
         System.out.println(userService.delete(VADIM.getId()));
         System.out.println(userService.delete(VADIM.getId()));
+
+        ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
+
+        Mockito.verify(userDao, Mockito.times(3)).delete(integerArgumentCaptor.capture());
+//        getValue() возвращается последнее значение. Ставить в зависимости от того сколько раз отрабатывает метод delete
+        assertThat(integerArgumentCaptor.getValue()).isEqualTo(25);
 
         assertThat(deleteResult).isTrue();
     }

@@ -40,6 +40,248 @@
 </style>
 <body>
 <article>
+    <h1>JUnit 5. 18. Mockito. Spy</h1>
+    <p>
+        Увидим на примере Spy, что более предпочтителен вариант
+        <code>Mockito.doReturn(true).when(userDao).delete(Mockito.any());</code>, а не
+        <code>Mockito.when(userDao.delete(VADIM.getId())).thenReturn(true).thenReturn(false);</code> потому что он
+        является более гибким. <b>Spy</b> - это тот же mock, но он содержит в себе реальный объект <code>UserDao</code>
+        и мы также его можем программировать с помощью мокито.
+    </p>
+    <h2>Посмотрим как это делается</h2>
+    <p>
+        Для начала создадим <code>UserDaoSpy</code> и как мы видили - у нас есть два варианта создания прокси в java,
+        в этот раз мы сделаем то же самое - через наследование. В спецификации указано, что есть ещё один вариант
+        создания моков, которые могут обойти ограничения с final в <code>UserDao</code> т.е. работают не через
+        extends, но пока что это не используется в реальных приложениях.
+    </p>
+    <p>
+        Теперь, делаем то же самое, что и в <code>UserDaoMock</code> и плюс ко всему у нас будет реальный объект.
+        Т.е. <code>private final UserDaoo userDao;</code>. И в этот раз, если у нас нет в <code>answer</code> т.е.
+        мы не запрограммировали наш <code>UserDaoSpy</code>, то просто обращаемся к <code>userDao</code> и у него
+        вызываем реальный метод. Вызов <code>userDao.delete()</code> должен быть lazy и не вызываться, если есть
+        answer:
+    </p>
+    <pre>
+    package com.kainv.junit.dao;
+    
+    import com.kainv.dao.UserDao;
+    import org.mockito.stubbing.Answer1;
+    
+    import java.util.HashMap;
+    import java.util.Map;
+    
+    public class UserDaoSpy extends UserDao {
+        private final UserDao userDao;
+        private Map&lt;Integer, Boolean> answers = new HashMap&lt;>();
+        private Answer1&lt;Integer, Boolean> answer1;
+    
+        public UserDaoSpy(UserDao userDao) {
+            this.userDao = userDao;
+        }
+    
+        @Override
+        public boolean delete(Integer userId) {
+            return answers.getOrDefault(userId, userDao.delete(userId));
+        }
+    }
+    </pre>
+    <p>
+        Чтобы проверить возвращаемся в <code>UserServiceTest</code>, метод <code>void prepare()</code> и в этот раз
+        вместо метода <code>Mockito.mock()</code> вызываем <code>Mockito.spy()</code> куда передаём уже реальный объект:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+    @BeforeEach
+    void prepare() {
+        System.out.println("Before each: " + this);
+        this.userDao = Mockito.spy(new UserDao());
+        this.userService = new UserService(userDao);
+    }
+    </pre>
+    <p>
+        Если запустим, то получим ошибку поскольку использовали второй вариант создания Stub'ов.
+    </p>
+    <img src="ju-18-1.png" alt="ju-18-1" width="60%">
+    <p>
+        Это связано с тем, что мы вызвали реальный метод из-за того, что использовали второй вариант который не гибкий.
+        В случае моков - он прокатывал потому что он и так не содержит реальный объект в себе и не вызывает у него
+        метод.
+        В этом случае мы ещё не запрограммировали метод <code>delete()</code> у нашего Spy поэтому он вызвался.
+        Следственно, <b>предпочтительнее</b> использовать первый вариант, где метод по сути не вызывается у нашего
+        реального объекта.
+    </p>
+    <img src="ju-18-2.png" alt="ju-18-2" width="60%">
+    <p>
+        Т.е. мы сначала передаём в <code>.when()</code> объект <code>userDao</code>, а потом уже в обёртке (т.е. у
+        прокси) мы вызываем метод (<code>.delete()</code>) тем самым избегаем прямого вызова метода у нашего реального
+        объекта до тех пор, пока он не запрограммирован. Таким образом, <code>Mockito.doReturn()</code> является
+        более предпочтительным.
+    </p>
+    <img src="ju-18-3.png" alt="ju-18-3" width="60%">
+    <p>
+        В этот раз тест прошёл. Вот и единственное отличие mock'ов от spy'ев.
+    </p>
+    <h2>Что ещё мокито предоставляет нам</h2>
+    <h3>verify()</h3>
+    <p>
+        У нас есть возможность вызвать у мокито метод <code>verify()</code> и передать туда mock. Т.е. мы проверяем
+        сколько раз вызвался метод у определённого мока. Т.е. в нашем случае:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+    //        Mockito.when(userDao.delete(VADIM.getId()))
+    //                .thenReturn(true)
+    //                .thenReturn(false);
+
+            boolean deleteResult = userService.delete(VADIM.getId());
+            System.out.println(userService.delete(VADIM.getId()));
+            System.out.println(userService.delete(VADIM.getId()));
+
+            Mockito.verify(userDao).delete(VADIM.getId());
+
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <p>
+        По умолчанию проверяет, что один раз у <code>userDao</code> был вызван метод <code>.delete()</code>. Если это
+        не так, то будет ошибка. Если хотим сделать проверку на то, что вызвался несколько раз, то есть второй параметр
+        - это <code>VerificationMode mode</code>. Мы можем также использовать класс Mockito и передать
+        <code>Mockito.verify(userDao, Mockito.atList(2)).delete(VADIM.getId());</code>, т.е. как минимум два раза был
+        вызван. Если нужно конкретно, то передаём<code>Mockito.verify(userDao,
+        Mockito.times(2)).delete(VADIM.getId());</code>
+    </p>
+    <img src="ju-18-4.png" alt="ju-18-4" width="60%">
+    <p>
+        У нас выпало исключение потому что ожидали два раза вызов метода <code>delete()</code>, а вызвалось три. Таким
+        образом мы через <code>Mockito.verify()</code> можем проверять сколько раз вызвался метод у нашего мока. Т.е.
+        по сути как шпион перехватывает методы и спокойно сохраняет кол-во вызовов, что также легко реализовать
+        в нашем <code>UserDaoSpy</code>. Т.е. кол-во <code>invocation</code>'ов каждого метода мы можем просто делать
+        как счётчик и тут его инкрементировать.
+    </p>
+    <p>
+        Если ожидаем, что не будут никаких вызовов наших моков, то у мокито есть метод
+        <code>Mockito.verifyNoInteractions()</code> куда передаём все моки через массив.
+    </p>
+    <p>
+        Более того, механизм verify нам позволяет использовать ещё один функционал у мокито - это <i>argument
+        capture</i>. Т.е. можем посмотреть что было вызвано у нашего мока внутри нашего метода <code>delete()</code>.
+        Например, можем что-то подделать внутри этого метода:
+    </p>
+    <b>UserService.java</b>
+    <pre>
+    public boolean delete(Integer userId) {
+        Integer userIdLocal = 25;
+        return userDao.delete(userIdLocal);
+    }
+    </pre>
+    <p>
+        Именно arument capture позволяет нам отловить что именно было вызвано с каким аргументом метод
+        <code>delete()</code> у нашего мока. Потому что очень часто мы не проксируем наши параметры как в нашем случае
+        метод <code>delete()</code>, а что-то с ними делаем внутри нашего сервиса, а уже в сервисе идёт какая-то 
+        бизнес-логика которая со своими параметрами передаёт у наших зависимых классов вызывая их методы. Таким
+        образом мы можем посмотреть с какими именно аргументами мы вызвали метод у наших моков.
+    </p>
+    <p>
+        Поэтому, возвращаясь в <code>UserServiceTest</code> мы можем сделать следующим образом:
+    </p>
+    <b>UserServiceTest.java</b>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+        userService.add(VADIM);
+
+        //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+        //        Если никакой ид не интересует
+        //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+        //        Mockito.when(userDao.delete(VADIM.getId()))
+        //                .thenReturn(true)
+        //                .thenReturn(false);
+
+        boolean deleteResult = userService.delete(VADIM.getId());
+        System.out.println(userService.delete(VADIM.getId()));
+        System.out.println(userService.delete(VADIM.getId()));
+
+        ArgumentCaptor&lt;Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
+
+        Mockito.verify(userDao, Mockito.times(2)).delete(integerArgumentCaptor.capture());
+
+
+        assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <p>
+        Т.е. после уже вызова метода <code>userService.delete(VADIM.getId());</code> который собственно и проверяем
+        тестируя - мы создаём <code>ArgumentCaptor&lt;Integer></code> и вызываем метод
+        <code>integerArgumentCaptor.capture()</code> который захватывает метод <code>delete()</code>, а точнее
+        его аргументы все и в последующем мы можем их получить следующим образом:
+    </p>
+    <pre>
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+    
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+    
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+    
+    //        Mockito.when(userDao.delete(VADIM.getId()))
+    //                .thenReturn(true)
+    //                .thenReturn(false);
+    
+            boolean deleteResult = userService.delete(VADIM.getId());
+            System.out.println(userService.delete(VADIM.getId()));
+            System.out.println(userService.delete(VADIM.getId()));
+    
+            ArgumentCaptor&lt;Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
+    
+            Mockito.verify(userDao, Mockito.times(2)).delete(integerArgumentCaptor.capture());
+    //        getValue() возвращается последнее значение. Ставить в зависимости от того сколько раз отрабатывает метод delete
+            assertThat(integerArgumentCaptor.getValue()).isEqualTo(25);
+    
+            assertThat(deleteResult).isTrue();
+        }
+    </pre>
+    <p>
+        Таким образом можем перехватить все аргументы которые были переданы в наш Mock, но в данном случае у нас было 25
+        следственно будем ожидать, что будет значение 25. Поправим метод <code>delete()</code> в <code>UserService</code>:
+    </p>
+    <b>UserService.java</b>
+    <pre>
+    public boolean delete(Integer userId) {
+        return userDao.delete(userId);
+    }
+    </pre>
+    <p>
+        А так же <code>Mockito.verify(userDao, Mockito.times(2)).delete(integerArgumentCaptor.capture());</code> из
+        2 поставим 3: <code>Mockito.verify(userDao, Mockito.times(3)).delete(integerArgumentCaptor.capture());</code>
+        поскольку метод <code>delete()</code> вызывается три раза и запускаем тест:
+    </p>
+    <img src="ju-18-5.png" alt="ju-18-5" width="60%">
+    <p>
+        Наш тест упал уже с ожидаемой ошибкой. Т.е. ожидалось 25, а получили 1. Всё верно. Мы отловили
+        <code>ArgumentCaptore</code> значение и он отловил что там, было передано 1, хотя ожидали 25. Таким образом
+        через <code>ArgumentCaptore</code> мы можем отлавливать внутри что происходит у нашего <code>UserService</code>.
+        Таким образом можем протестировать всю логику нашего метода в не зависимости от того что у нас куча моков
+        на наши зависимые классы.
+    </p>
+</article>
+<article>
     <h1>JUnit 5. 17. Mockito. Mock</h1>
     <h2>Mock</h2>
     <p>

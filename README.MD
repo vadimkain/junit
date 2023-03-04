@@ -1,343 +1,190 @@
-JUnit 5. 17. Mockito. Mock
-==========================
+JUnit 5. 18. Mockito. Spy
+=========================
 
-Mock
-----
+Увидим на примере Spy, что более предпочтителен вариант `Mockito.doReturn(true).when(userDao).delete(Mockito.any());`, а не `Mockito.when(userDao.delete(VADIM.getId())).thenReturn(true).thenReturn(false);` потому что он является более гибким. **Spy** - это тот же mock, но он содержит в себе реальный объект `UserDao` и мы также его можем программировать с помощью мокито.
 
-Начнём с часто используемого - Mock. Во время использования наших моков мы будем сталкиваться и со stub'ами, и с fake'ами, и с dummy.
+Посмотрим как это делается
+--------------------------
 
-Для начала нам нужно сделать `UserService` более реалистичным, т.е. добавить зависимость на `UserDao`. Создадим класс `UserDao` от которого будет зависеть `UserService`:
+Для начала создадим `UserDaoSpy` и как мы видили - у нас есть два варианта создания прокси в java, в этот раз мы сделаем то же самое - через наследование. В спецификации указано, что есть ещё один вариант создания моков, которые могут обойти ограничения с final в `UserDao` т.е. работают не через extends, но пока что это не используется в реальных приложениях.
 
-    package com.kainv.dao;
+Теперь, делаем то же самое, что и в `UserDaoMock` и плюс ко всему у нас будет реальный объект. Т.е. `private final UserDaoo userDao;`. И в этот раз, если у нас нет в `answer` т.е. мы не запрограммировали наш `UserDaoSpy`, то просто обращаемся к `userDao` и у него вызываем реальный метод. Вызов `userDao.delete()` должен быть lazy и не вызываться, если есть answer:
 
-    import lombok.SneakyThrows;
-
-    import java.sql.Connection;
-    import java.sql.DriverManager;
-
-    public class UserDao {
-        @SneakyThrows
-        public boolean delete(Integer userId) {
-            try (Connection connection = DriverManager.getConnection("url", "username", "password")) {
-                return true;
-            }
-        }
-    }
-
-
-Возвращаемся в `UserService`, переопределяем конструктор и добавляем метод по удалению нашего пользователя т.е. в `UserService` приходит метод для удаления пользователя и он просто перенаправляет его на `UserDao` поэтому пишем:
-
-    package com.kainv.service;
-
+    package com.kainv.junit.dao;
+    
     import com.kainv.dao.UserDao;
-    import com.kainv.dto.User;
-
-    import java.util.\*;
-
-    import static java.util.function.Function.identity;
-    import static java.util.stream.Collectors.toMap;
-
-    public class UserService {
-
-        private final List<User> users = new ArrayList<>();
+    import org.mockito.stubbing.Answer1;
+    
+    import java.util.HashMap;
+    import java.util.Map;
+    
+    public class UserDaoSpy extends UserDao {
         private final UserDao userDao;
-
-        public UserService(UserDao userDao) {
+        private Map<Integer, Boolean> answers = new HashMap<>();
+        private Answer1<Integer, Boolean> answer1;
+    
+        public UserDaoSpy(UserDao userDao) {
             this.userDao = userDao;
         }
-
+    
+        @Override
         public boolean delete(Integer userId) {
-            return userDao.delete(userId);
-        }
-
-        public List<User> getAll() {
-            return users;
-        }
-
-        public void add(User... users) {
-            this.users.addAll(Arrays.asList(users));
-        }
-
-        public Optional<User> login(String username, String password) {
-            if (username == null || password == null) {
-                throw new IllegalArgumentException("username or password is null");
-            }
-            return users.stream()
-                    .filter(user -> user.getUsername().equals(username))
-                    .filter(user -> user.getPassword().equals(password))
-                    .findFirst();
-        }
-
-        public Map<Integer, User> getAllConvertedById() {
-            return users.stream().collect(toMap(User::getId, identity()));
+            return answers.getOrDefault(userId, userDao.delete(userId));
         }
     }
 
 
-Теперь видим, что если напишем тест на метод `delete()`, то это будет уже **интеграционный** тест. Потому что мы проверяем не только логику метода нашего `delete()` у `UserService`, но и логику работы нашего метода `delete()` у `UserDao`. Т.е. два совершенно разных класса, следственно это интеграционный тест как `UserService` дружит с `UserDao`.
-
-### Напишем тест на метод delete() в UserService
-
-Переходим в `UserServiceTest` и пишем тест. Предварительно нужно закоментировать `ThrowableExtension.class` в `@ExtendWith({})` потому что он ловит все наши исключения и говорит что тесты прошли.
-
-**UserServiceTest.java**
-
-    @Test
-    void shouldDeleteExistedUser() {
-        userService.add(VADIM);
-
-        boolean deleteResult = userService.delete(VADIM.getId());
-
-        assertThat(deleteResult).isTrue();
-    }
-
-
-Если запустим, то тесты упадут потому что зайдя в `UserDao` и вызвав метод `delete()` мы не смогли подключиться к БД. Следственно, это уже интеграционный тест. Следственно, мы должны использовать **Mockito**.
-
-Для этого нам нужно проинициализировать наш `UserService`. Не будем использовать наш DI-механизм. Во-первых добавляем `UserDao` как поле в нашем `UserServiceTest` классе:
-
-**UserServiceTest.java**
-
-        private UserDao userDao;
-
-
-И теперь его тоже надо проинициализоровать и передать в `UserService` в методе `prepare()`. Мы не можем напрямую передать `this.userDao = new UserDao();`. Для этого нам нужен какой-то mock-объект который мы в дальнейшем будем программировать. Мы не должны реальные методы вызывать у `UserDao` поэтому используем метод `Mockito.mock()`, который создаёт прокси-объект с таким же классом который мы передали в него в качестве параметра:
+Чтобы проверить возвращаемся в `UserServiceTest`, метод `void prepare()` и в этот раз вместо метода `Mockito.mock()` вызываем `Mockito.spy()` куда передаём уже реальный объект:
 
 **UserServiceTest.java**
 
     @BeforeEach
     void prepare() {
         System.out.println("Before each: " + this);
-        this.userDao = Mockito.mock(UserDao.class);
+        this.userDao = Mockito.spy(new UserDao());
         this.userService = new UserService(userDao);
     }
 
 
-Теперь, если запустим тест, то реальный метод не вызовется. Но тесты и не выполнятся.
+Если запустим, то получим ошибку поскольку использовали второй вариант создания Stub'ов.
 
-![ju-17-1](src/main/resources/ju-17-1.png)
+![ju-18-1](src/main/resources/ju-18-1.png)
 
-Сначала разберёмся почему вернулся false, а во вторых, что это за Mock объект.
+Это связано с тем, что мы вызвали реальный метод из-за того, что использовали второй вариант который не гибкий. В случае моков - он прокатывал потому что он и так не содержит реальный объект в себе и не вызывает у него метод. В этом случае мы ещё не запрограммировали метод `delete()` у нашего Spy поэтому он вызвался. Следственно, **предпочтительнее** использовать первый вариант, где метод по сути не вызывается у нашего реального объекта.
 
-### Создадим mock-объект вручную
+![ju-18-2](src/main/resources/ju-18-2.png)
 
-    package com.kainv.junit.dao;
+Т.е. мы сначала передаём в `.when()` объект `userDao`, а потом уже в обёртке (т.е. у прокси) мы вызываем метод (`.delete()`) тем самым избегаем прямого вызова метода у нашего реального объекта до тех пор, пока он не запрограммирован. Таким образом, `Mockito.doReturn()` является более предпочтительным.
 
-    import com.kainv.dao.UserDao;
+![ju-18-3](src/main/resources/ju-18-3.png)
 
-    public class UserDaoMock extends UserDao {
-        @Override
-        public boolean delete(Integer userId) {
-            return false;
-        }
-    }
+В этот раз тест прошёл. Вот и единственное отличие mock'ов от spy'ев.
 
+Что ещё мокито предоставляет нам
+--------------------------------
 
-Мы можем использовать его вместо реального `UserDao` потому что он наследуется от него и переопределяет все его методы. Возвращаются, как правило, какие-то дефолтные значения. Для примитивных типов это обычные дефолтные значения (для boolean - false, для целочисленных - 0 и т.д.), для объектов сложных это null, для коллекций это обычные пустые коллекции.
+### verify()
 
-Т.к. `UserDaoMock` наследуется от `UserDao`, следственно мы можем его использовать везде где используется `UserDao`. Но тут опять видим ограничения потому что мы не можем сделать `final class UserDao` потому что тогда не сможем наследоваться от него.
-
-Мы опять приходим к двум вариантам создания mock-ов: это динамическое прокси и наследование как это делает Mockito и Spring. Наш класс **не должен быть** `final` иначе будет исключение.
-
-### Возвращаемся в UserServiceTest
-
-Мы добавили `UserDao`, но теперь хотим его как-то запрограммировать чтобы при удалении именно в `userService.delete(VADIM.getId());`, именно наш `userDao` должен вернуть true или false. Мы должны научить его делать потому что по умолчанию он возвращает дефолтное значение false.
+У нас есть возможность вызвать у мокито метод `verify()` и передать туда mock. Т.е. мы проверяем сколько раз вызвался метод у определённого мока. Т.е. в нашем случае:
 
 **UserServiceTest.java**
 
-    @Test
-    void shouldDeleteExistedUser() {
+        @Test
+        void shouldDeleteExistedUser() {
+            userService.add(VADIM);
+
+    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+    //        Если никакой ид не интересует
+    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+    //        Mockito.when(userDao.delete(VADIM.getId()))
+    //                .thenReturn(true)
+    //                .thenReturn(false);
+
+            boolean deleteResult = userService.delete(VADIM.getId());
+            System.out.println(userService.delete(VADIM.getId()));
+            System.out.println(userService.delete(VADIM.getId()));
+
+            Mockito.verify(userDao).delete(VADIM.getId());
+
+            assertThat(deleteResult).isTrue();
+        }
+
+
+По умолчанию проверяет, что один раз у `userDao` был вызван метод `.delete()`. Если это не так, то будет ошибка. Если хотим сделать проверку на то, что вызвался несколько раз, то есть второй параметр - это `VerificationMode mode`. Мы можем также использовать класс Mockito и передать `Mockito.verify(userDao, Mockito.atList(2)).delete(VADIM.getId());`, т.е. как минимум два раза был вызван. Если нужно конкретно, то передаём`Mockito.verify(userDao, Mockito.times(2)).delete(VADIM.getId());`
+
+![ju-18-4](src/main/resources/ju-18-4.png)
+
+У нас выпало исключение потому что ожидали два раза вызов метода `delete()`, а вызвалось три. Таким образом мы через `Mockito.verify()` можем проверять сколько раз вызвался метод у нашего мока. Т.е. по сути как шпион перехватывает методы и спокойно сохраняет кол-во вызовов, что также легко реализовать в нашем `UserDaoSpy`. Т.е. кол-во `invocation`'ов каждого метода мы можем просто делать как счётчик и тут его инкрементировать.
+
+Если ожидаем, что не будут никаких вызовов наших моков, то у мокито есть метод `Mockito.verifyNoInteractions()` куда передаём все моки через массив.
+
+Более того, механизм verify нам позволяет использовать ещё один функционал у мокито - это _argument capture_. Т.е. можем посмотреть что было вызвано у нашего мока внутри нашего метода `delete()`. Например, можем что-то подделать внутри этого метода:
+
+**UserService.java**
+
+    public boolean delete(Integer userId) {
+        Integer userIdLocal = 25;
+        return userDao.delete(userIdLocal);
+    }
+
+
+Именно arument capture позволяет нам отловить что именно было вызвано с каким аргументом метод `delete()` у нашего мока. Потому что очень часто мы не проксируем наши параметры как в нашем случае метод `delete()`, а что-то с ними делаем внутри нашего сервиса, а уже в сервисе идёт какая-то бизнес-логика которая со своими параметрами передаёт у наших зависимых классов вызывая их методы. Таким образом мы можем посмотреть с какими именно аргументами мы вызвали метод у наших моков.
+
+Поэтому, возвращаясь в `UserServiceTest` мы можем сделать следующим образом:
+
+**UserServiceTest.java**
+
+        @Test
+        void shouldDeleteExistedUser() {
         userService.add(VADIM);
 
+        //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
+        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
+
+        //        Если никакой ид не интересует
+        //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
+
+        //        Mockito.when(userDao.delete(VADIM.getId()))
+        //                .thenReturn(true)
+        //                .thenReturn(false);
+
         boolean deleteResult = userService.delete(VADIM.getId());
+        System.out.println(userService.delete(VADIM.getId()));
+        System.out.println(userService.delete(VADIM.getId()));
+
+        ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
+
+        Mockito.verify(userDao, Mockito.times(2)).delete(integerArgumentCaptor.capture());
+
 
         assertThat(deleteResult).isTrue();
-    }
+        }
 
 
-Для этого опять же воспользуемся Mockito и пишем:
+Т.е. после уже вызова метода `userService.delete(VADIM.getId());` который собственно и проверяем тестируя - мы создаём `ArgumentCaptor<Integer>` и вызываем метод `integerArgumentCaptor.capture()` который захватывает метод `delete()`, а точнее его аргументы все и в последующем мы можем их получить следующим образом:
 
         @Test
         void shouldDeleteExistedUser() {
             userService.add(VADIM);
-
+    
     //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
             Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
-
-            boolean deleteResult = userService.delete(VADIM.getId());
-
-            assertThat(deleteResult).isTrue();
-        }
-
-
-Мы создали **Stub** для ответа на вызов метода mock'ом. Т.е. говорим: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId(). В данном случае нас **интересует** этот id'шник следственно это фейковый идшник, но если он нас **не интересует**, то мы на любой переданный ид в метод `delete()` в `UserDao` хотим вернуть true. Тогда мы используем **dummy**\-объект. Т.е. у мокито есть куча методов типа `any()`:
-
-**UserServiceTest**
-
-        @Test
-        void shouldDeleteExistedUser() {
-            userService.add(VADIM);
-
-    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
-            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
-
+    
     //        Если никакой ид не интересует
     //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
-
-            boolean deleteResult = userService.delete(VADIM.getId());
-
-            assertThat(deleteResult).isTrue();
-        }
-
-
-
-Запустим и проверим что получится:
-
-![ju-17-2](src/main/resources/ju-17-2.png)
-
-В этот раз вернул уже true.
-
-Как это работает
-----------------
-
-Как мы научили `UserDao` возвращать результат true, когда передаём какой-то определенный идшник?
-
-Всё очень просто: напишем что-то вроде ассоциативного массива:
-
-    package com.kainv.junit.dao;
-
-    import com.kainv.dao.UserDao;
-
-    import java.util.HashMap;
-    import java.util.Map;
-
-    public class UserDaoMock extends UserDao {
-
-        // Ключ Integer потому что аргумент типа Integer и значение Boolean потому что метод возвращает boolean
-        private Map<Integer, Boolean> answers = new HashMap<>();
-        @Override
-        public boolean delete(Integer userId) {
-            return answers.getOrDefault(userId, false);
-        }
-    }
-
-
-
-Теперь, каждый раз когда мы обучаем наш `UserDaoMock` - мы просто у нашего `answers` берём результат по ключу. Теперь, каждый раз когда обучаем наш `UserDaoMock` - мы просто берём у нашего `answers` результат по ключу иначе возвращаем false. Для того чтобы обучить этот `answers` - мы используем утилитный класс мокито и добавляем туда значения. Например, по id 1 верни true и т.д..
-
-Этот метод не универсальный потому что у нас могут быть другие типы данных и несколько параметров. Следственно, это все уже решено за нас и у нас есть специальный класс как `Answer` (_stubbing_ - пакет в мокито который занимается созданием **stub**'ов). `Answer1`, `Answer2` и т.д. говорит о кол-ве аргументов в методе.
-
-    package com.kainv.junit.dao;
-
-    import com.kainv.dao.UserDao;
-    import org.mockito.stubbing.Answer1;
-
-    import java.util.HashMap;
-    import java.util.Map;
-
-    public class UserDaoMock extends UserDao {
-
-        // Ключ Integer потому что аргумент типа Integer и значение Boolean потому что метод возвращает boolean
-        private Map<Integer, Boolean> answers = new HashMap<>();
-        private Answer1<Integer, Boolean> answer1;
-        @Override
-        public boolean delete(Integer userId) {
-            return answers.getOrDefault(userId, false);
-        }
-    }
-
-
-Возвращаемся в UserServiceTest
-------------------------------
-
-Если передадим в `userService.delete(2)`, то тест упадёт потому что вернёт единичку:
-
-**UserServiceTest.java**
-
-        @Test
-        void shouldDeleteExistedUser() {
-            userService.add(VADIM);
-
-    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
-            Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
-
-    //        Если никакой ид не интересует
-    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
-
-            boolean deleteResult = userService.delete(2);
-
-            assertThat(deleteResult).isTrue();
-        }
-
-
-![ju-17-3](src/main/resources/ju-17-3.png) **UserServiceTest.java**
-
-        @Test
-        void shouldDeleteExistedUser() {
-            userService.add(VADIM);
-
-    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
-    //        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
-
-    //        Если никакой ид не интересует
-            Mockito.doReturn(true).when(userDao).delete(Mockito.any());
-
-            boolean deleteResult = userService.delete(2);
-
-            assertThat(deleteResult).isTrue();
-        }
-
-
-![ju-17-4](src/main/resources/ju-17-4.png)
-
-В этот раз тест пройден потому что нас не интересует идентификатор, мы в любом случае возвращаем true. Таким образом можем программировать `Mockito.doReturn()` и возвращать любое значение которое только захотим.
-
-### Второй вариант программирования
-
-**UserServiceTest.java**
-
-        @Test
-        void shouldDeleteExistedUser() {
-            userService.add(VADIM);
-
-    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
-    //        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
-
-    //        Если никакой ид не интересует
-    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
-
-            Mockito.when(userDao.delete(VADIM.getId())).thenReturn(true);
-
-            boolean deleteResult = userService.delete(2);
-
-            assertThat(deleteResult).isTrue();
-        }
-
-
-Этот вариант тоже работает, но не для всех случаев. Первый вариант является предпочтительнее потому что он является универсальным. Второй вариант позволяет последовательно возвращать значения если будем вызывать у одного и того же mock'а несколько раз метод `delete()` чтобы он возвращал сначала true, а потом false:
-
-**UserServiceTest.java**
-
-        @Test
-        void shouldDeleteExistedUser() {
-            userService.add(VADIM);
-
-    //        STUB: верни true, когда у userDao вызовем метод delete и передадим туда VADIM.getId()
-    //        Mockito.doReturn(true).when(userDao).delete(VADIM.getId());
-
-    //        Если никакой ид не интересует
-    //        Mockito.doReturn(true).when(userDao).delete(Mockito.any());
-
-            Mockito.when(userDao.delete(VADIM.getId()))
-                    .thenReturn(true)
-                    .thenReturn(false);
-
+    
+    //        Mockito.when(userDao.delete(VADIM.getId()))
+    //                .thenReturn(true)
+    //                .thenReturn(false);
+    
             boolean deleteResult = userService.delete(VADIM.getId());
             System.out.println(userService.delete(VADIM.getId()));
             System.out.println(userService.delete(VADIM.getId()));
-
+    
+            ArgumentCaptor<Integer> integerArgumentCaptor = ArgumentCaptor.forClass(Integer.class);
+    
+            Mockito.verify(userDao, Mockito.times(2)).delete(integerArgumentCaptor.capture());
+    //        getValue() возвращается последнее значение. Ставить в зависимости от того сколько раз отрабатывает метод delete
+            assertThat(integerArgumentCaptor.getValue()).isEqualTo(25);
+    
             assertThat(deleteResult).isTrue();
         }
 
 
-![ju-17-5](src/main/resources/ju-17-5.png)
+Таким образом можем перехватить все аргументы которые были переданы в наш Mock, но в данном случае у нас было 25 следственно будем ожидать, что будет значение 25. Поправим метод `delete()` в `UserService`:
+
+**UserService.java**
+
+    public boolean delete(Integer userId) {
+        return userDao.delete(userId);
+    }
+
+
+А так же `Mockito.verify(userDao, Mockito.times(2)).delete(integerArgumentCaptor.capture());` из 2 поставим 3: `Mockito.verify(userDao, Mockito.times(3)).delete(integerArgumentCaptor.capture());` поскольку метод `delete()` вызывается три раза и запускаем тест:
+
+![ju-18-5](src/main/resources/ju-18-5.png)
+
+Наш тест упал уже с ожидаемой ошибкой. Т.е. ожидалось 25, а получили 1. Всё верно. Мы отловили `ArgumentCaptore` значение и он отловил что там, было передано 1, хотя ожидали 25. Таким образом через `ArgumentCaptore` мы можем отлавливать внутри что происходит у нашего `UserService`. Таким образом можем протестировать всю логику нашего метода в не зависимости от того что у нас куча моков на наши зависимые классы.
