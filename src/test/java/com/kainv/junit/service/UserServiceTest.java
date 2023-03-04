@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.*;
 import org.mockito.ArgumentCaptor;
+import org.mockito.BDDMockito;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 
@@ -79,6 +80,10 @@ public class UserServiceTest extends TestBase {
 //                .thenReturn(true)
 //                .thenReturn(false);
 
+//        BDDMockito.given(userDao.delete(VADIM.getId())).willReturn(true);
+//
+//        BDDMockito.willReturn(true).given(userDao).delete(VADIM.getId());
+
         boolean deleteResult = userService.delete(VADIM.getId());
         System.out.println(userService.delete(VADIM.getId()));
         System.out.println(userService.delete(VADIM.getId()));
@@ -112,7 +117,6 @@ public class UserServiceTest extends TestBase {
     @Order(2)
     void usersSizeIfUserAdded() {
         System.out.println("Test 2: " + this);
-
         userService.add(VADIM);
         userService.add(PETR);
 
